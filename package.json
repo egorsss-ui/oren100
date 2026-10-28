@@ -1,0 +1,10 @@
+{
+  "name": "oren100",
+  "version": "1.0.0",
+  "description": "Сайт репетиторов OREN100: запись на занятия, личные кабинеты, админ-панель",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}
