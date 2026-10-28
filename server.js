@@ -22,7 +22,50 @@ const TUTORS = {
 };
 const GOALS = ['ВПР', 'МЦКО', 'ОГЭ', 'ЕГЭ', 'Повышение успеваемости', 'Помощь с домашним заданием'];
 const STATUSES = ['new', 'confirmed', 'done', 'cancelled'];
-const SLOT_RE = /^(Пн|Вт|Ср|Чт|Пт|Сб|Вс), \d{1,2} [а-я]{3} \d{2}:\d{2}$/;
+
+// ---------------- Расписание ----------------
+// Репетиторы работают ЕЖЕДНЕВНО с 14:00 до 21:00 по Москве (МСК = UTC+3, без перехода на летнее время).
+// Дни считаются на сервере от сегодняшней даты, поэтому расписание обновляется само.
+const MSK_OFFSET = 3 * 3600e3;
+const WORK_FROM = 14, WORK_TO = 21;   // занятия по 60 мин: 14:00 … 20:00 (последнее заканчивается в 21:00)
+const BOOKING_DAYS = 7;               // сколько дней показывать (сегодня + 6 следующих)
+const BOOKING_LEAD_MIN = 60;          // записаться можно не позднее чем за 60 минут до начала
+const WEEKDAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const pad2 = n => String(n).padStart(2, '0');
+
+// Ключ окошка хранится как раньше: «Чт, 29 окт 14:00» (старые записи остаются валидными).
+function buildSchedule() {
+  const now = Date.now();
+  const m = new Date(now + MSK_OFFSET); // «московские» настенные часы, читаются через getUTC*
+  const days = [];
+  for (let i = 0; i < BOOKING_DAYS; i++) {
+    const d = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate() + i));
+    const label = WEEKDAYS[d.getUTCDay()], date = d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
+    const slots = [];
+    for (let h = WORK_FROM; h < WORK_TO; h++) {
+      const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h) - MSK_OFFSET;
+      slots.push({ time: pad2(h) + ':00', key: label + ', ' + date + ' ' + pad2(h) + ':00', open: start - now >= BOOKING_LEAD_MIN * 60e3 });
+    }
+    days.push({ label, date, today: i === 0, slots });
+  }
+  return days;
+}
+
+// Момент начала занятия (мс, UTC) по ключу «Чт, 29 окт 14:00». Год выбирается ближайший к сегодняшнему дню.
+function slotStartMs(slot) {
+  const mt = String(slot).match(/^[А-Яа-я]{2}, (\d{1,2}) ([а-я]{3}) (\d{2}):(\d{2})$/);
+  if (!mt) return null;
+  const mon = MONTHS.indexOf(mt[2]);
+  if (mon < 0) return null;
+  const now = Date.now(), y = new Date(now + MSK_OFFSET).getUTCFullYear();
+  let best = null;
+  for (const yy of [y - 1, y, y + 1]) {
+    const t = Date.UTC(yy, mon, Number(mt[1]), Number(mt[3]), Number(mt[4])) - MSK_OFFSET;
+    if (best === null || Math.abs(t - now) < Math.abs(best - now)) best = t;
+  }
+  return best;
+}
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ---------------- База данных (JSON-файл) ----------------
@@ -177,7 +220,11 @@ async function handleApi(req, res, url) {
   if (route === 'GET /api/slots') {
     const tutor = url.searchParams.get('tutor');
     if (!hasTutor(tutor)) fail(400, 'Неизвестный репетитор');
-    return send(res, 200, { taken: db.bookings.filter(b => b.tutor === tutor && activeBooking(b)).map(b => b.slot) });
+    const taken = new Set(db.bookings.filter(b => b.tutor === tutor && activeBooking(b)).map(b => b.slot));
+    const days = buildSchedule().map(d => Object.assign({}, d, {
+      slots: d.slots.map(x => ({ time: x.time, key: x.key, available: x.open && !taken.has(x.key) })),
+    }));
+    return send(res, 200, { days, workFrom: WORK_FROM, workTo: WORK_TO, tz: 'МСК' });
   }
 
   // Запись на занятие — только для вошедших пользователей
@@ -186,7 +233,9 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const tutor = hasTutor(b.tutor) ? b.tutor : fail(400, 'Неизвестный репетитор');
     const slot = str(b.slot, 40);
-    if (!SLOT_RE.test(slot)) fail(400, 'Некорректное время занятия.');
+    const sched = buildSchedule().flatMap(d => d.slots).find(x => x.key === slot);
+    if (!sched) fail(400, 'Некорректное время занятия или оно вне ближайшего расписания. Обновите страницу.');
+    if (!sched.open) fail(409, 'Это время уже прошло или начинается слишком скоро. Выберите другое окошко.');
     const student = str(b.student, 80), phone = str(b.phone, 30), email = str(b.email, 120), comment = str(b.comment, 500);
     const grade = Number(b.grade), subject = str(b.subject, 40), goal = str(b.goal, 60);
     if (student.length < 2) fail(400, 'Введите имя ученика.');
@@ -214,15 +263,8 @@ async function handleApi(req, res, url) {
     requireUser();
     const bk = db.bookings.find(x => x.id === Number(m[1]) && x.userId === me.id) || fail(404, 'Запись не найдена');
     if (bk.status !== 'new' && bk.status !== 'confirmed') fail(409, 'Эту запись уже нельзя отменить.');
-    // Время занятия хранится в формате «Пн, 21 окт 09:00» без года.
-    const months = { 'янв': 0, 'фев': 1, 'мар': 2, 'апр': 3, 'май': 4, 'июн': 5, 'июл': 6, 'авг': 7, 'сен': 8, 'окт': 9, 'ноя': 10, 'дек': 11 };
-    const sm = bk.slot.match(/,\s*(\d{1,2})\s+([а-я]{3})\s+(\d{2}):(\d{2})$/i);
-    if (sm) {
-      const now = new Date();
-      let lesson = new Date(now.getFullYear(), months[sm[2].toLowerCase()], Number(sm[1]), Number(sm[3]), Number(sm[4]));
-      if (lesson.getTime() < now.getTime() - 180 * 24 * 3600 * 1000) lesson.setFullYear(lesson.getFullYear() + 1);
-      if (lesson.getTime() - now.getTime() < 24 * 3600 * 1000) fail(409, 'Отменить запись можно только не позднее чем за 24 часа до занятия.');
-    }
+    const lessonMs = slotStartMs(bk.slot);
+    if (lessonMs !== null && lessonMs - Date.now() < 24 * 3600e3) fail(409, 'Отменить запись можно только не позднее чем за 24 часа до занятия.');
     bk.status = 'cancelled'; bk.cancelledBy = 'user'; bk.updatedAt = new Date().toISOString();
     saveDb();
     return send(res, 200, { booking: bk });
@@ -233,7 +275,7 @@ async function handleApi(req, res, url) {
     requireAdmin();
     const bookings = db.bookings.slice().sort((a, b) => b.id - a.id).map(b => {
       const u = db.users.find(x => x.id === b.userId);
-      return Object.assign({}, b, { account: { name: u ? u.name : '—', email: u ? u.email : '—' } });
+      return Object.assign({}, b, { startMs: slotStartMs(b.slot), account: { name: u ? u.name : '—', email: u ? u.email : '—' } });
     });
     return send(res, 200, { bookings });
   }
