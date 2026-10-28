@@ -11,14 +11,26 @@
 <header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
 <main class="container">
 <h2 class="section-title page-title">Панель администратора</h2>
-<p class="section-sub">Все записи на занятия и зарегистрированные пользователи. Данные обновляются автоматически.</p>
+<p class="section-sub">Календарь занятий по репетиторам, все записи и пользователи. Данные обновляются автоматически. Время — московское.</p>
 <div class="empty" id="adminGate" hidden><p>Эта страница доступна только администратору. Войдите под учётной записью администратора.</p><a href="login.html?next=admin.html" class="btn btn-primary">Войти</a></div>
 <div id="adminApp" hidden>
 <div class="admin-stats" id="adminStats"></div>
-<div class="filters" role="group" aria-label="Раздел"><button type="button" class="filter active" data-tab="bookings">Записи</button><button type="button" class="filter" data-tab="users">Пользователи</button></div>
-<section id="tabBookings">
+<div class="filters" role="group" aria-label="Раздел"><button type="button" class="filter active" data-tab="calendar">Календарь</button><button type="button" class="filter" data-tab="bookings">Все записи</button><button type="button" class="filter" data-tab="users">Пользователи</button></div>
+
+<section id="tabCalendar">
+<div class="cal-toolbar">
+<div class="cal-nav"><button type="button" class="btn btn-ghost btn-sm" id="calPrev" aria-label="Предыдущая неделя">← Неделя</button><button type="button" class="btn btn-ghost btn-sm" id="calToday">Сегодня</button><button type="button" class="btn btn-ghost btn-sm" id="calNext" aria-label="Следующая неделя">Неделя →</button><b id="calRange"></b></div>
+<div class="cal-opts"><div class="filters" id="calTutors" role="group" aria-label="Репетитор"><button type="button" class="filter active" data-tutor="">Все репетиторы</button><button type="button" class="filter" data-tutor="egor">Егор Артемович</button><button type="button" class="filter" data-tutor="valentina">Валентина Александровна</button></div>
+<label class="check"><input type="checkbox" id="calCancelled">Показывать отменённые</label></div>
+</div>
+<div class="load-grid" id="calLoad"></div>
+<div class="table-wrap cal-wrap"><div class="cal" id="calGrid"></div></div>
+<div class="legend cal-legend"><span><i class="l-new"></i>Ожидает подтверждения</span><span><i class="l-conf"></i>Подтверждена</span><span><i class="l-done"></i>Проведено</span><span><i class="l-over"></i>Время прошло — отметьте итог</span><span>Время московское (МСК)</span></div>
+</section>
+
+<section id="tabBookings" hidden>
 <div class="admin-filters"><select id="fStatus" aria-label="Статус"></select><select id="fTutor" aria-label="Репетитор"><option value="">Все репетиторы</option><option value="egor">Егор Артемович</option><option value="valentina">Валентина Александровна</option></select><input type="search" id="fSearch" placeholder="Поиск: имя, телефон, email, время" aria-label="Поиск"></div>
-<div class="table-wrap"><table class="admin-table"><thead><tr><th>№</th><th>Создана</th><th>Репетитор</th><th>Занятие</th><th>Ученик</th><th>Контакты</th><th>Класс · предмет · цель</th><th>Комментарий</th><th>Аккаунт</th><th>Статус</th></tr></thead><tbody id="bookingsBody"></tbody></table></div>
+<div class="table-wrap"><table class="admin-table"><thead><tr><th>№</th><th>Создана</th><th>Репетитор</th><th>Занятие (МСК)</th><th>Ученик</th><th>Контакты</th><th>Класс · предмет · цель</th><th>Комментарий</th><th>Аккаунт</th><th>Статус</th></tr></thead><tbody id="bookingsBody"></tbody></table></div>
 <p class="section-sub" id="bookingsEmpty" hidden>Записей по выбранным условиям нет.</p>
 </section>
 <section id="tabUsers" hidden>
@@ -26,7 +38,15 @@
 </section>
 </div>
 </main>
-<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; 2024 OREN100. Все права защищены.</p></footer>
+
+<div class="modal-backdrop" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle"><div class="modal">
+<button class="close-modal" type="button" aria-label="Закрыть">&times;</button>
+<h3 id="adminModalTitle"></h3><p class="modal-when" id="adminModalWhen"></p>
+<dl class="detail" id="adminModalBody"></dl>
+<label class="field">Статус записи<select id="adminModalStatus"></select></label>
+<p class="form-error" id="adminModalError" role="alert"></p>
+</div></div>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p></footer>
 <script src="script.js"></script>
 </body>
 </html>
