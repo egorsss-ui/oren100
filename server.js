@@ -22,49 +22,36 @@ const TUTORS = {
 };
 const GOALS = ['ВПР', 'МЦКО', 'ОГЭ', 'ЕГЭ', 'Повышение успеваемости', 'Помощь с домашним заданием'];
 const STATUSES = ['new', 'confirmed', 'done', 'cancelled'];
+const START_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):00$/; // «2026-10-29 14:00» — время по Москве
 
 // ---------------- Расписание ----------------
-// Репетиторы работают ЕЖЕДНЕВНО с 14:00 до 21:00 по Москве (МСК = UTC+3, без перехода на летнее время).
-// Дни считаются на сервере от сегодняшней даты, поэтому расписание обновляется само.
-const MSK_OFFSET = 3 * 3600e3;
-const WORK_FROM = 14, WORK_TO = 21;   // занятия по 60 мин: 14:00 … 20:00 (последнее заканчивается в 21:00)
-const BOOKING_DAYS = 7;               // сколько дней показывать (сегодня + 6 следующих)
-const BOOKING_LEAD_MIN = 60;          // записаться можно не позднее чем за 60 минут до начала
+// Репетиторы работают КАЖДЫЙ день с 14:00 до 21:00 по Москве. Занятие — 60 минут,
+// поэтому последнее занятие начинается в 20:00. Меняйте значения здесь.
+const TZ_OFFSET_H = 3;      // Москва = UTC+3 (без перехода на летнее время)
+const WORK_START = 14;      // первое занятие начинается в 14:00
+const WORK_END = 21;        // работа заканчивается в 21:00
+const MIN_LEAD_MIN = 60;    // нельзя записаться на время, которое начнётся раньше чем через 60 минут
+const HORIZON_DAYS = 7;     // запись открыта на 7 дней: сегодня + 6 следующих (одна неделя вперёд)
 const WEEKDAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const pad2 = n => String(n).padStart(2, '0');
-
-// Ключ окошка хранится как раньше: «Чт, 29 окт 14:00» (старые записи остаются валидными).
-function buildSchedule() {
-  const now = Date.now();
-  const m = new Date(now + MSK_OFFSET); // «московские» настенные часы, читаются через getUTC*
-  const days = [];
-  for (let i = 0; i < BOOKING_DAYS; i++) {
-    const d = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate() + i));
-    const label = WEEKDAYS[d.getUTCDay()], date = d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
-    const slots = [];
-    for (let h = WORK_FROM; h < WORK_TO; h++) {
-      const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h) - MSK_OFFSET;
-      slots.push({ time: pad2(h) + ':00', key: label + ', ' + date + ' ' + pad2(h) + ':00', open: start - now >= BOOKING_LEAD_MIN * 60e3 });
-    }
-    days.push({ label, date, today: i === 0, slots });
-  }
-  return days;
+const mskNow = () => new Date(Date.now() + TZ_OFFSET_H * 3600e3); // читать только через getUTC*
+const ymd = d => d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+const startToMs = start => { // момент начала занятия (UTC, мс)
+  const m = START_RE.exec(start);
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], 0) - TZ_OFFSET_H * 3600e3;
+};
+function slotLabel(start) { // «Чт, 29 окт 14:00»
+  const m = START_RE.exec(start);
+  const wd = WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+  return wd + ', ' + Number(m[3]) + ' ' + MONTHS[+m[2] - 1] + ' ' + m[4] + ':00';
 }
-
-// Момент начала занятия (мс, UTC) по ключу «Чт, 29 окт 14:00». Год выбирается ближайший к сегодняшнему дню.
-function slotStartMs(slot) {
-  const mt = String(slot).match(/^[А-Яа-я]{2}, (\d{1,2}) ([а-я]{3}) (\d{2}):(\d{2})$/);
-  if (!mt) return null;
-  const mon = MONTHS.indexOf(mt[2]);
-  if (mon < 0) return null;
-  const now = Date.now(), y = new Date(now + MSK_OFFSET).getUTCFullYear();
-  let best = null;
-  for (const yy of [y - 1, y, y + 1]) {
-    const t = Date.UTC(yy, mon, Number(mt[1]), Number(mt[3]), Number(mt[4])) - MSK_OFFSET;
-    if (best === null || Math.abs(t - now) < Math.abs(best - now)) best = t;
-  }
-  return best;
+function validStart(start) { // существует ли такая дата и входит ли время в рабочие часы
+  const m = typeof start === 'string' && START_RE.exec(start);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (ymd(d) !== m[1] + '-' + m[2] + '-' + m[3]) return false;
+  return +m[4] >= WORK_START && +m[4] < WORK_END;
 }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -79,6 +66,23 @@ function loadDb() {
     if (e.code !== 'ENOENT') throw new Error('Не удалось прочитать ' + DB_FILE + ': ' + e.message);
   }
   db.sessions = db.sessions.filter(s => s.exp > Date.now());
+  migrateBookings();
+}
+// Старые записи хранили только текст «Ср, 23 окт 10:00» (без года). Достраиваем точную дату `start`.
+function migrateBookings() {
+  let changed = false;
+  db.bookings.forEach(b => {
+    if (b.start) return;
+    const m = /(\d{1,2})\s+([а-я]{3})\s+(\d{2}):(\d{2})$/i.exec(b.slot || '');
+    const mon = m ? MONTHS.indexOf(m[2].toLowerCase()) : -1;
+    if (!m || mon < 0) return;
+    const year = new Date(b.createdAt || Date.now()).getUTCFullYear();
+    b.start = year + '-' + pad2(mon + 1) + '-' + pad2(Number(m[1])) + ' ' + m[3] + ':' + m[4];
+    const d = new Date(Date.UTC(year, mon, Number(m[1])));
+    b.slot = WEEKDAYS[d.getUTCDay()] + ', ' + Number(m[1]) + ' ' + m[2].toLowerCase() + ' ' + m[3] + ':' + m[4]; // исправляем день недели
+    changed = true;
+  });
+  if (changed) saveDb();
 }
 function saveDb() {
   const tmp = DB_FILE + '.tmp';
@@ -167,6 +171,7 @@ const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 // ---------------- API ----------------
 const activeBooking = b => b.status !== 'cancelled';
+const sameSlot = (a, b) => a.tutor === b.tutor && (a.start && b.start ? a.start === b.start : a.slot === b.slot);
 
 async function handleApi(req, res, url) {
   const route = req.method + ' ' + url.pathname;
@@ -216,15 +221,25 @@ async function handleApi(req, res, url) {
 
   if (route === 'POST /api/logout') { endSession(req, res); return send(res, 200, { ok: true }); }
 
-  // Занятые окошки репетитора (без персональных данных) — видны всем
-  if (route === 'GET /api/slots') {
+  // Расписание репетитора: ближайшие дни от СЕГОДНЯШНЕЙ даты (по Москве), рабочие часы 14:00–21:00.
+  // Занятые окошки приходят без персональных данных — видны всем.
+  if (route === 'GET /api/schedule') {
     const tutor = url.searchParams.get('tutor');
     if (!hasTutor(tutor)) fail(400, 'Неизвестный репетитор');
-    const taken = new Set(db.bookings.filter(b => b.tutor === tutor && activeBooking(b)).map(b => b.slot));
-    const days = buildSchedule().map(d => Object.assign({}, d, {
-      slots: d.slots.map(x => ({ time: x.time, key: x.key, available: x.open && !taken.has(x.key) })),
-    }));
-    return send(res, 200, { days, workFrom: WORK_FROM, workTo: WORK_TO, tz: 'МСК' });
+    const now = mskNow();
+    const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const busy = new Set(db.bookings.filter(b => b.tutor === tutor && activeBooking(b) && b.start).map(b => b.start));
+    const minMs = Date.now() + MIN_LEAD_MIN * 60e3;
+    const days = [];
+    for (let i = 0; i < HORIZON_DAYS; i++) {
+      const d = new Date(base + i * 86400e3), date = ymd(d), slots = [];
+      for (let h = WORK_START; h < WORK_END; h++) {
+        const start = date + ' ' + pad2(h) + ':00';
+        slots.push({ time: pad2(h) + ':00', start, state: busy.has(start) ? 'busy' : (startToMs(start) < minMs ? 'past' : 'free') });
+      }
+      days.push({ date, weekday: WEEKDAYS[d.getUTCDay()], label: d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()], slots });
+    }
+    return send(res, 200, { today: ymd(now), timezone: 'МСК', days });
   }
 
   // Запись на занятие — только для вошедших пользователей
@@ -232,10 +247,12 @@ async function handleApi(req, res, url) {
     requireUser();
     const b = await readBody(req);
     const tutor = hasTutor(b.tutor) ? b.tutor : fail(400, 'Неизвестный репетитор');
-    const slot = str(b.slot, 40);
-    const sched = buildSchedule().flatMap(d => d.slots).find(x => x.key === slot);
-    if (!sched) fail(400, 'Некорректное время занятия или оно вне ближайшего расписания. Обновите страницу.');
-    if (!sched.open) fail(409, 'Это время уже прошло или начинается слишком скоро. Выберите другое окошко.');
+    const start = str(b.start, 20);
+    if (!validStart(start)) fail(400, 'Некорректное время занятия. Занятия проходят ежедневно с ' + WORK_START + ':00 до ' + WORK_END + ':00 по Москве.');
+    if (startToMs(start) < Date.now() + MIN_LEAD_MIN * 60e3) fail(400, 'Это время уже прошло или начнётся слишком скоро. Выберите другое окошко.');
+    const lastDay = ymd(new Date(Date.UTC(mskNow().getUTCFullYear(), mskNow().getUTCMonth(), mskNow().getUTCDate() + HORIZON_DAYS - 1)));
+    if (start.slice(0, 10) > lastDay) fail(400, 'Запись открыта только на ближайшую неделю (до ' + slotLabel(lastDay + ' 00:00').replace(/ 00:00$/, '') + ').');
+    const slot = slotLabel(start);
     const student = str(b.student, 80), phone = str(b.phone, 30), email = str(b.email, 120), comment = str(b.comment, 500);
     const grade = Number(b.grade), subject = str(b.subject, 40), goal = str(b.goal, 60);
     if (student.length < 2) fail(400, 'Введите имя ученика.');
@@ -244,9 +261,9 @@ async function handleApi(req, res, url) {
     if (!Number.isInteger(grade) || grade < 5 || grade > 11) fail(400, 'Выберите класс (с 5 по 11).');
     if (!TUTORS[tutor].subjects.includes(subject)) fail(400, 'Выберите предмет из списка.');
     if (!GOALS.includes(goal)) fail(400, 'Выберите цель занятий.');
-    if (db.bookings.some(x => x.tutor === tutor && x.slot === slot && activeBooking(x))) fail(409, 'Это время уже занято. Выберите другое окошко.');
+    if (db.bookings.some(x => activeBooking(x) && sameSlot(x, { tutor, start, slot }))) fail(409, 'Это время уже занято. Выберите другое окошко.');
     const now = new Date().toISOString();
-    const booking = { id: nextId(db.bookings), userId: me.id, tutor, tutorName: TUTORS[tutor].name, slot, student, phone, email, grade, subject, goal, comment, status: 'new', createdAt: now, updatedAt: now };
+    const booking = { id: nextId(db.bookings), userId: me.id, tutor, tutorName: TUTORS[tutor].name, slot, start, student, phone, email, grade, subject, goal, comment, status: 'new', createdAt: now, updatedAt: now };
     db.bookings.push(booking);
     saveDb();
     return send(res, 201, { booking });
@@ -263,8 +280,8 @@ async function handleApi(req, res, url) {
     requireUser();
     const bk = db.bookings.find(x => x.id === Number(m[1]) && x.userId === me.id) || fail(404, 'Запись не найдена');
     if (bk.status !== 'new' && bk.status !== 'confirmed') fail(409, 'Эту запись уже нельзя отменить.');
-    const lessonMs = slotStartMs(bk.slot);
-    if (lessonMs !== null && lessonMs - Date.now() < 24 * 3600e3) fail(409, 'Отменить запись можно только не позднее чем за 24 часа до занятия.');
+    // Время занятия (по Москве) хранится в bk.start — сравниваем с текущим моментом, год и часовой пояс учтены.
+    if (bk.start && startToMs(bk.start) - Date.now() < 24 * 3600e3) fail(409, 'Отменить запись можно только не позднее чем за 24 часа до занятия.');
     bk.status = 'cancelled'; bk.cancelledBy = 'user'; bk.updatedAt = new Date().toISOString();
     saveDb();
     return send(res, 200, { booking: bk });
@@ -275,9 +292,11 @@ async function handleApi(req, res, url) {
     requireAdmin();
     const bookings = db.bookings.slice().sort((a, b) => b.id - a.id).map(b => {
       const u = db.users.find(x => x.id === b.userId);
-      return Object.assign({}, b, { startMs: slotStartMs(b.slot), account: { name: u ? u.name : '—', email: u ? u.email : '—' } });
+      return Object.assign({}, b, { account: { name: u ? u.name : '—', email: u ? u.email : '—' } });
     });
-    return send(res, 200, { bookings });
+    const tutors = {}; Object.keys(TUTORS).forEach(k => { tutors[k] = TUTORS[k].name; });
+    const n = mskNow();
+    return send(res, 200, { bookings, today: ymd(n), now: ymd(n) + ' ' + pad2(n.getUTCHours()) + ':' + pad2(n.getUTCMinutes()), config: { workStart: WORK_START, workEnd: WORK_END, tutors } });
   }
   if (route === 'GET /api/admin/users') {
     requireAdmin();
@@ -290,7 +309,7 @@ async function handleApi(req, res, url) {
     if (!STATUSES.includes(b.status)) fail(400, 'Неизвестный статус');
     const bk = db.bookings.find(x => x.id === Number(m[1])) || fail(404, 'Запись не найдена');
     if (b.status !== 'cancelled' && bk.status === 'cancelled' &&
-        db.bookings.some(x => x.id !== bk.id && x.tutor === bk.tutor && x.slot === bk.slot && activeBooking(x))) fail(409, 'Это время уже занято другой записью.');
+        db.bookings.some(x => x.id !== bk.id && sameSlot(x, bk) && activeBooking(x))) fail(409, 'Это время уже занято другой записью.');
     bk.status = b.status; bk.updatedAt = new Date().toISOString();
     if (b.status === 'cancelled') bk.cancelledBy = 'admin'; else delete bk.cancelledBy;
     saveDb();
