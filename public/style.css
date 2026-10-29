@@ -277,7 +277,7 @@ img,svg,video{max-width:100%}
 @media(max-width:800px){
   .header-inner{flex-wrap:wrap;padding:10px 16px;gap:0}
   .logo{order:1}
-  .burger{display:flex;order:2;margin-left:auto;flex-direction:column;justify-content:center;gap:5px;width:44px;height:44px;padding:0 11px;border:2px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
+  .burger{display:flex;order:2;margin-left:auto;flex-direction:column;justify-content:center;gap:5px;width:44px;height:44px;padding:0 13px;border:0;border-radius:50%;background:var(--soft);cursor:pointer;transition:background .2s}
   .burger span{display:block;height:2px;border-radius:2px;background:var(--brand);transition:transform .2s,opacity .2s}
   header.open .burger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
   header.open .burger span:nth-child(2){opacity:0}
@@ -364,3 +364,9 @@ img,svg,video{max-width:100%}
   .admin-stats .big-stat:last-child:nth-child(odd){grid-column:1/-1}
 }
 @media(min-width:1000px){.day h4{min-height:50px}}
+
+@media(max-width:800px){
+  .burger:active{transform:scale(.94)}
+  header.open .burger{background:var(--brand)}
+  header.open .burger span{background:#fff}
+}
