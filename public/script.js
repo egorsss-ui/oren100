@@ -239,7 +239,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const empty = (text, buttons) => {
       list.replaceChildren();
       const d = el('div', 'empty'); d.append(el('p', null, text));
-      buttons.forEach(([label, href, cls]) => { const a = el('a', 'btn ' + cls, label); a.href = href; d.append(a, document.createTextNode(' ')); });
+      if (buttons.length) {
+        const row = el('div', 'empty-actions');
+        buttons.forEach(([label, href, cls]) => { const a = el('a', 'btn ' + cls, label); a.href = href; row.append(a); });
+        d.append(row);
+      }
       list.append(d);
     };
     const render = async () => {
