@@ -11,7 +11,7 @@
 <header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
 <main class="container">
 <h2 class="section-title page-title">Панель администратора</h2>
-<p class="section-sub">Календарь занятий по репетиторам, все записи и пользователи. Данные обновляются автоматически. Время — московское.</p>
+<p class="section-sub">Календарь занятий по репетиторам, все записи и пользователи. Данные обновляются автоматически. Время — московское. <a href="cabinet.html" class="inline-link">Открыть кабинет репетитора →</a></p>
 <div class="empty" id="adminGate" hidden><p>Эта страница доступна только администратору. Войдите под учётной записью администратора.</p><a href="login.html?next=admin.html" class="btn btn-primary">Войти</a></div>
 <div id="adminApp" hidden>
 <div class="admin-stats" id="adminStats"></div>
@@ -34,7 +34,7 @@
 <p class="section-sub" id="bookingsEmpty" hidden>Записей по выбранным условиям нет.</p>
 </section>
 <section id="tabUsers" hidden>
-<div class="table-wrap"><table class="admin-table"><thead><tr><th>№</th><th>Регистрация</th><th>Имя</th><th>Email</th><th>Телефон</th><th>Тип</th><th>Записей</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+<div class="table-wrap"><table class="admin-table"><thead><tr><th>№</th><th>Регистрация</th><th>Имя</th><th>Email</th><th>Телефон</th><th>Тип</th><th>Роль</th><th>Записей</th><th>Пароль</th></tr></thead><tbody id="usersBody"></tbody></table></div>
 </section>
 </div>
 </main>
@@ -46,7 +46,7 @@
 <label class="field">Статус записи<select id="adminModalStatus"></select></label>
 <p class="form-error" id="adminModalError" role="alert"></p>
 </div></div>
-<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p></footer>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
 <script src="script.js"></script>
 </body>
 </html>

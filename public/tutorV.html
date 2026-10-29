@@ -19,7 +19,7 @@
 <p class="section-sub">Нажмите на свободное окошко — откроется форма записи на занятие. Записаться могут только зарегистрированные пользователи. Занятия проходят каждый день с 14:00 до 21:00 по московскому времени.</p>
 <div class="week-nav"><button type="button" class="btn btn-ghost btn-sm" id="weekPrev">← Раньше</button><b id="weekLabel"></b><button type="button" class="btn btn-ghost btn-sm" id="weekNext">Позже →</button></div>
 <div class="days" id="days" aria-live="polite"><p class="section-sub">Загружаем расписание…</p></div>
-<div class="legend"><span><i></i>Свободно</span><span><i class="l-busy"></i>Занято</span><span><i class="l-sel"></i>Выбрано</span></div></section>
+<div class="legend"><span><i></i>Свободно</span><span><i class="l-busy"></i>Занято или закрыто</span><span><i class="l-sel"></i>Выбрано</span></div></section>
 
 <section class="slots-section"><h3 class="section-title">Отзывы учеников</h3><div class="reviews"><div class="review-card"><p>«Очень чуткая и внимательная.»</p><span class="review-author">Максим Т.</span><span class="review-date">10.10.2023</span></div></div></section>
 </main>
@@ -37,11 +37,13 @@
 <label class="field">Предмет<select name="subject" required><option value="">Выберите</option><option>Математика</option><option>Информатика</option></select></label>
 <label class="field">Цель занятий<select name="goal" required><option value="">Выберите</option><option>ВПР</option><option>МЦКО</option><option>ОГЭ</option><option>ЕГЭ</option><option>Повышение успеваемости</option><option>Помощь с домашним заданием</option></select></label>
 <label class="field">Комментарий<textarea name="comment" maxlength="500" placeholder="Например: нужно подтянуть тему «Производная»"></textarea></label>
+<label class="check consent" id="consentRow" hidden><input type="checkbox" name="consent"><span>Я даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="privacy.html" target="_blank" rel="noopener">Политикой конфиденциальности</a>. Если ученику нет 18 лет, согласие даёт родитель или законный представитель.</span></label>
+<p class="form-note">Отправляя заявку, вы подтверждаете, что ознакомлены с <a href="privacy.html" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</p>
 <p class="form-error" id="bookingError" role="alert"></p>
 <button type="submit" class="btn btn-primary btn-block">Записаться на занятие</button></form>
 <div class="success" id="bookingDone" hidden><div class="tick">✓</div><h3>Заявка отправлена</h3><p id="doneText"></p><button type="button" class="btn btn-ghost close-done">Закрыть</button></div>
 </div></div>
-<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p></footer>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
 <script src="script.js"></script>
 </body>
 </html>

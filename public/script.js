@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const STATUS = { new: 'Ожидает подтверждения', confirmed: 'Подтверждена', done: 'Проведено', cancelled: 'Отменена' };
+  const cancelLabel = by => by === 'tutor' ? 'Отменена репетитором' : by === 'admin' ? 'Отменена администрацией' : 'Отменена';
   const TUTOR_NAMES = { egor: 'Егор Артемович', valentina: 'Валентина Александровна' };
   let user = null;
 
@@ -49,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     out.addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); } catch (e) {} location.href = 'index.html'; });
     actions.append(chip, out);
     const nav = $('header nav');
+    if ((user.role === 'admin' || user.role === 'tutor') && nav) { const c = el('a', null, 'Кабинет'); c.href = 'cabinet.html'; nav.append(c); }
     if (user.role === 'admin' && nav) { const a = el('a', null, 'Админ-панель'); a.href = 'admin.html'; nav.append(a); }
   }
   const headerEl = $('header'), headerInner = $('.header-inner');
@@ -93,10 +95,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       e.preventDefault(); err.className = 'form-error'; err.textContent = '';
       if (reg.password.value.length < 8) { err.textContent = 'Пароль должен быть не короче 8 символов.'; return; }
       if (reg.password.value !== reg.password2.value) { err.textContent = 'Пароли не совпадают. Введите их ещё раз.'; return; }
+      if (!reg.consent.checked) { err.textContent = 'Нужно согласие на обработку персональных данных.'; return; }
       const btn = $('[type=submit]', reg); btn.disabled = true;
       try {
         await api('/api/register', { method: 'POST', body: {
-          name: reg.elements.name.value, phone: reg.phone.value, email: reg.email.value, password: reg.password.value, type: reg.type.value } });
+          name: reg.elements.name.value, phone: reg.phone.value, email: reg.email.value, password: reg.password.value, type: reg.type.value, consent: true } });
         err.className = 'form-error form-ok';
         err.textContent = 'Аккаунт создан! Переходим дальше…';
         setTimeout(() => { location.href = next || 'index.html'; }, 800);
@@ -110,6 +113,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tutorId = tutorMain.dataset.tutor;
     const modal = $('#bookingModal'), form = $('#bookingForm'), gate = $('#authGate'), done = $('#bookingDone'), err = $('#bookingError');
     const daysEl = $('#days'), PER_PAGE = 7;
+    const consentRow = $('#consentRow');
+    if (consentRow && user && user.needsConsent) consentRow.hidden = false; // аккаунт создан до появления согласия
     let days = [], today = '', page = 0, selectedStart = null, activeDate = null;
 
     const updateNearest = () => {
@@ -147,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const li = el('li'), b = el('button', 'slot' + (s.start === selectedStart ? ' selected' : ''), s.time);
           b.type = 'button';
           b.dataset.start = s.start; b.dataset.date = day.weekday + ', ' + day.label; b.dataset.time = s.time;
-          if (s.state !== 'free') { b.disabled = true; b.title = s.state === 'busy' ? 'Время занято' : 'Это время уже прошло'; }
+          if (s.state !== 'free') { b.disabled = true; b.title = s.state === 'busy' ? 'Время занято' : s.state === 'closed' ? 'Репетитор в это время не принимает' : 'Это время уже прошло'; }
           li.append(b); ul.append(li);
         });
         col.append(h, ul); daysEl.append(col);
@@ -216,11 +221,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     form.addEventListener('submit', async e => {
       e.preventDefault(); err.textContent = '';
+      if (user && user.needsConsent && !form.consent.checked) { err.textContent = 'Подтвердите согласие на обработку персональных данных.'; return; }
       const btn = $('[type=submit]', form); btn.disabled = true;
       try {
         const { booking } = await api('/api/bookings', { method: 'POST', body: {
           tutor: tutorId, start: $('#selectedSlot').value, student: form.student.value, phone: form.phone.value, email: form.email.value,
-          grade: form.grade.value, subject: form.subject.value, goal: form.goal.value, comment: form.comment.value } });
+          grade: form.grade.value, subject: form.subject.value, goal: form.goal.value, comment: form.comment.value, consent: form.consent ? form.consent.checked : undefined } });
+        if (user) user.needsConsent = false; if (consentRow) consentRow.hidden = true;
         $('#doneText').textContent = 'Мы передали заявку: ' + $('#summaryTime').textContent + '. Репетитор свяжется с вами по телефону ' +
           booking.phone + '. Заявка сохранена в разделе «Мои записи».';
         form.hidden = true; done.hidden = false;
@@ -239,11 +246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const empty = (text, buttons) => {
       list.replaceChildren();
       const d = el('div', 'empty'); d.append(el('p', null, text));
-      if (buttons.length) {
-        const row = el('div', 'empty-actions');
-        buttons.forEach(([label, href, cls]) => { const a = el('a', 'btn ' + cls, label); a.href = href; row.append(a); });
-        d.append(row);
-      }
+      buttons.forEach(([label, href, cls]) => { const a = el('a', 'btn ' + cls, label); a.href = href; d.append(a, document.createTextNode(' ')); });
       list.append(d);
     };
     const render = async () => {
@@ -256,10 +259,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         const d = el('div', 'booking-item'), t = el('div');
         t.append(el('b', null, b.tutorName),
           el('span', 'meta', b.slot + ' МСК · ' + b.subject + ' · ' + b.goal),
-          el('span', 'meta', b.grade + ' класс · ' + b.student + ' · создана ' + fmtDate(b.createdAt)),
-          el('span', 'status st-' + b.status, STATUS[b.status]));
+          el('span', 'meta', b.grade + ' класс · ' + b.student + ' · создана ' + fmtDate(b.createdAt)));
+        if (b.moves && b.moves.length) t.append(el('span', 'meta moved', 'Перенесена с ' + b.moves[b.moves.length - 1].fromSlot));
+        t.append(el('span', 'status st-' + b.status, b.status === 'cancelled' ? cancelLabel(b.cancelledBy) : STATUS[b.status]));
         d.append(t);
-        if (b.status === 'new' || b.status === 'confirmed') {
+        const active = b.status === 'new' || b.status === 'confirmed';
+        if (b.editable) {
+          const acts = el('div', 'booking-actions');
+          const mv = el('button', 'btn btn-primary btn-sm', 'Перенести'); mv.type = 'button';
+          mv.addEventListener('click', () => openMove(b));
           const btn = el('button', 'btn btn-ghost btn-sm', 'Отменить запись'); btn.type = 'button';
           btn.addEventListener('click', async () => {
             if (!confirm('Отменить запись на ' + b.slot + '?')) return;
@@ -267,11 +275,65 @@ document.addEventListener('DOMContentLoaded', async () => {
             try { await api('/api/bookings/' + b.id + '/cancel', { method: 'POST' }); } catch (ex) { alert(ex.message); }
             render();
           });
-          d.append(btn);
+          acts.append(mv, btn); d.append(acts);
+        } else if (active) {
+          d.append(el('p', 'locked', 'До занятия меньше 24 часов — перенос и отмена недоступны. Свяжитесь с репетитором.'));
         }
         list.append(d);
       });
     };
+    // --- Перенос записи ---
+    const moveModal = $('#moveModal'), moveErr = $('#moveError'), moveBtn = $('#moveConfirm');
+    let moving = null, moveDays = [], moveDate = null, moveStart = null;
+    const closeMove = () => { moveModal.classList.remove('open'); moving = null; };
+    const renderMove = () => {
+      const dEl = $('#moveDays'), sEl = $('#moveSlots'); dEl.replaceChildren(); sEl.replaceChildren();
+      const freeN = d => d.slots.filter(x => x.state === 'free').length;
+      moveDays.forEach(day => {
+        const n = freeN(day), b = el('button', 'move-day' + (day.date === moveDate ? ' active' : '') + (n ? '' : ' none'));
+        b.type = 'button'; b.append(el('b', null, day.weekday), el('span', null, day.label), el('small', null, n ? n + ' св.' : 'нет'));
+        b.addEventListener('click', () => { moveDate = day.date; moveStart = null; renderMove(); });
+        dEl.append(b);
+      });
+      const day = moveDays.find(x => x.date === moveDate);
+      if (day) day.slots.forEach(sl => {
+        const b = el('button', 'slot' + (sl.start === moveStart ? ' selected' : ''), sl.time); b.type = 'button';
+        if (sl.state !== 'free') { b.disabled = true; b.title = sl.state === 'busy' ? 'Время занято' : sl.state === 'closed' ? 'Репетитор в это время не принимает' : 'Это время уже прошло'; }
+        b.addEventListener('click', () => { moveStart = sl.start; renderMove(); });
+        sEl.append(b);
+      });
+      moveBtn.disabled = !moveStart;
+      moveBtn.textContent = moveStart ? 'Перенести на ' + day.weekday + ', ' + day.label + ', ' + moveStart.slice(11) + ' (МСК)' : 'Выберите новое время';
+    };
+    const openMove = async b => {
+      moving = b; moveStart = null; moveErr.textContent = '';
+      $('#moveWhen').textContent = b.tutorName + ' · сейчас: ' + b.slot + ' (МСК)';
+      moveBtn.disabled = true; moveBtn.textContent = 'Загружаем расписание…';
+      $('#moveDays').replaceChildren(); $('#moveSlots').replaceChildren();
+      moveModal.classList.add('open');
+      try {
+        const d = await api('/api/schedule?tutor=' + encodeURIComponent(b.tutor));
+        moveDays = d.days; moveDate = (d.days.find(x => x.slots.some(s => s.state === 'free')) || d.days[0] || {}).date; renderMove();
+      } catch (ex) { moveErr.textContent = ex.message; }
+    };
+    moveBtn.addEventListener('click', async () => {
+      if (!moving || !moveStart) return;
+      moveBtn.disabled = true; moveErr.textContent = '';
+      const wasConfirmed = moving.status === 'confirmed';
+      try {
+        const { booking } = await api('/api/bookings/' + moving.id + '/reschedule', { method: 'POST', body: { start: moveStart } });
+        closeMove(); await render();
+        const note = el('div', 'notice', 'Запись перенесена на ' + booking.slot + ' (МСК).' + (wasConfirmed ? ' Репетитор подтвердит новое время.' : ''));
+        list.prepend(note);
+      } catch (ex) {
+        moveErr.textContent = ex.message;
+        try { const d = await api('/api/schedule?tutor=' + encodeURIComponent(moving.tutor)); moveDays = d.days; moveStart = null; renderMove(); } catch (e2) {}
+      }
+    });
+    $('.close-modal', moveModal).addEventListener('click', closeMove);
+    moveModal.addEventListener('click', e => { if (e.target === moveModal) closeMove(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMove(); });
+
     if (!user) empty('Чтобы увидеть свои записи, войдите в аккаунт.', [['Войти', 'login.html?next=bookings.html', 'btn-primary'], ['Регистрация', 'register.html?next=bookings.html', 'btn-ghost']]);
     else render();
   }
@@ -440,7 +502,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       users.forEach(u => {
         const tr = el('tr');
         td(tr, String(u.id)); td(tr, fmtDate(u.createdAt)); td(tr, u.name); td(tr, u.email); td(tr, u.phone);
-        td(tr, u.role === 'admin' ? 'Администратор' : (u.type === 'student' ? 'Ученик' : 'Родитель')); td(tr, String(u.bookingsCount));
+        td(tr, u.role === 'admin' ? 'Администратор' : (u.type === 'student' ? 'Ученик' : 'Родитель'));
+        const rc = el('td');
+        if (u.role === 'admin') rc.textContent = 'Администратор';
+        else {
+          const sel = el('select'); sel.setAttribute('aria-label', 'Роль пользователя ' + u.name);
+          sel.append(new Option('Пользователь', 'user'));
+          Object.entries(cfg.tutors).forEach(([k, n]) => sel.append(new Option('Репетитор — ' + n, 'tutor:' + k)));
+          sel.value = u.role === 'tutor' ? 'tutor:' + u.tutor : 'user';
+          sel.addEventListener('change', async () => {
+            const [role, tutorKey] = sel.value.split(':'); sel.disabled = true;
+            try { await api('/api/admin/users/' + u.id + '/role', { method: 'POST', body: { role, tutor: tutorKey } }); }
+            catch (ex) { alert(ex.message); }
+            load();
+          });
+          rc.append(sel);
+        }
+        tr.append(rc);
+        td(tr, String(u.bookingsCount));
+        const pc = el('td'), rb = el('button', 'btn btn-ghost btn-sm', 'Ссылка для сброса'); rb.type = 'button';
+        rb.addEventListener('click', async () => {
+          rb.disabled = true;
+          try {
+            const r = await api('/api/admin/users/' + u.id + '/reset-link', { method: 'POST' });
+            window.prompt('Отправьте эту ссылку пользователю ' + r.email + ' (действует ' + r.validMinutes + ' мин). Скопируйте её:', r.link);
+          } catch (ex) { alert(ex.message); }
+          rb.disabled = false;
+        });
+        pc.append(rb); tr.append(pc);
         ub.append(tr);
       });
       if (openId != null && adminModal.classList.contains('open') && !modalStatus.disabled) fillModal();
@@ -476,5 +565,286 @@ document.addEventListener('DOMContentLoaded', async () => {
     }));
     load();
     setInterval(load, 30000);
+  }
+  // ---------- Восстановление пароля ----------
+  const forgot = $('#forgotForm');
+  if (forgot) {
+    const err = $('#formError');
+    forgot.addEventListener('submit', async e => {
+      e.preventDefault(); err.textContent = '';
+      const btn = $('[type=submit]', forgot); btn.disabled = true;
+      try {
+        await api('/api/forgot', { method: 'POST', body: { email: forgot.email.value } });
+        forgot.hidden = true; $('.lead').hidden = true; $('#forgotDone').hidden = false;
+      } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+    });
+  }
+  const resetF = $('#resetForm');
+  if (resetF) {
+    const token = new URLSearchParams(location.search).get('token') || '';
+    history.replaceState(null, '', location.pathname); // токен не остаётся в адресной строке
+    const err = $('#formError');
+    if (!token) { resetF.hidden = true; $('.lead').textContent = 'Ссылка неполная. Запросите восстановление пароля ещё раз.'; }
+    resetF.addEventListener('submit', async e => {
+      e.preventDefault(); err.textContent = '';
+      if (resetF.password.value.length < 8) { err.textContent = 'Пароль должен быть не короче 8 символов.'; return; }
+      if (resetF.password.value !== resetF.password2.value) { err.textContent = 'Пароли не совпадают. Введите их ещё раз.'; return; }
+      const btn = $('[type=submit]', resetF); btn.disabled = true;
+      try {
+        await api('/api/reset', { method: 'POST', body: { token, password: resetF.password.value } });
+        resetF.hidden = true; $('.lead').hidden = true; $('#resetBack').hidden = true; $('#resetDone').hidden = false;
+      } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+    });
+  }
+
+  // ---------- Кабинет репетитора ----------
+  const cabApp = $('#cabApp');
+  if (cabApp) {
+    if (!user || (user.role !== 'admin' && user.role !== 'tutor')) { $('#cabGate').hidden = false; return; }
+    cabApp.hidden = false;
+    let D = null, tutor = '', lf = 'upcoming', openKey = null;
+    const p2 = n => String(n).padStart(2, '0');
+    const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const dateLabel = d => { const [y, m, dd] = d.split('-').map(Number); return WD[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()] + ', ' + dd + ' ' + MON[m - 1]; };
+    const addDays = (d, n) => { const [y, m, dd] = d.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, dd + n)); return t.getUTCFullYear() + '-' + p2(t.getUTCMonth() + 1) + '-' + p2(t.getUTCDate()); };
+    const all = () => D.bookings.filter(b => b.start);
+    const isAct = b => b.status === 'new' || b.status === 'confirmed';
+    const isPast = b => b.start.slice(0, 13) < D.now.slice(0, 13);
+    const who = by => by === 'tutor' ? 'репетитором' : by === 'admin' ? 'администрацией' : 'учеником';
+    const tel = v => 'tel:' + String(v || '').replace(/[^\d+]/g, '');
+
+    // --- Ученики: собираем из записей ---
+    const students = () => {
+      const map = new Map();
+      all().forEach(b => { if (!map.has(b.studentKey)) map.set(b.studentKey, { key: b.studentKey, name: b.student, lessons: [] }); map.get(b.studentKey).lessons.push(b); });
+      map.forEach(s => {
+        s.lessons.sort((a, b) => b.start.localeCompare(a.start));
+        const last = s.lessons[0];
+        Object.assign(s, { grade: last.grade, subject: last.subject, goal: last.goal, phone: last.phone, email: last.email, account: last.account,
+          done: s.lessons.filter(b => b.status === 'done').length, upcoming: s.lessons.filter(b => isAct(b) && !isPast(b)).length,
+          cancelled: s.lessons.filter(b => b.status === 'cancelled').length, notes: D.notes.filter(n => n.studentKey === s.key) });
+      });
+      return [...map.values()].sort((a, b) => b.lessons[0].start.localeCompare(a.lessons[0].start));
+    };
+
+    // --- Статистика ---
+    const renderStats = () => {
+      const act = all().filter(isAct), box = $('#cabStats'); box.replaceChildren();
+      [[act.filter(b => b.start.slice(0, 10) === D.today).length, 'занятий сегодня'], [act.filter(b => b.status === 'new' && !isPast(b)).length, 'ждут подтверждения'],
+       [act.filter(isPast).length, 'нужно отметить итог'], [students().length, 'учеников']].forEach(([n, l]) => {
+        const d = el('div', 'big-stat'); d.append(el('b', null, String(n)), el('span', null, l)); box.append(d);
+      });
+      const m = act.filter(isPast).length; $('#markCount').textContent = m ? String(m) : ''; $('#markCount').hidden = !m;
+    };
+
+    // --- Занятия ---
+    const lessonCard = b => {
+      const c = el('div', 'lesson st-b-' + b.status + (isAct(b) && isPast(b) ? ' overdue' : ''));
+      const when = el('div', 'lesson-when'); when.append(el('b', null, b.start.slice(11, 16)), el('span', null, dateLabel(b.start.slice(0, 10))));
+      const body = el('div', 'lesson-body');
+      const nm = el('button', 'link-btn', b.student); nm.type = 'button'; nm.addEventListener('click', () => openStudent(b.studentKey));
+      body.append(nm, el('span', 'meta', b.grade + ' класс · ' + b.subject + ' · ' + b.goal));
+      const ph = el('a', 'meta tel', b.phone); ph.href = tel(b.phone); body.append(ph);
+      if (b.comment) body.append(el('span', 'meta quote', '«' + b.comment + '»'));
+      if (b.moves && b.moves.length) body.append(el('span', 'meta moved', 'Перенесена с ' + b.moves[b.moves.length - 1].fromSlot));
+      if (b.status === 'cancelled') body.append(el('span', 'meta', 'Отменена ' + who(b.cancelledBy)));
+      const noteN = D.notes.filter(n => n.bookingId === b.id).length;
+      if (noteN) body.append(el('span', 'meta', 'Заметок к занятию: ' + noteN));
+      const acts = el('div', 'lesson-actions'), sel = el('select'); sel.setAttribute('aria-label', 'Статус записи ' + b.id);
+      Object.entries(STATUS).forEach(([k, v]) => sel.append(new Option(v, k)));
+      sel.value = b.status;
+      sel.addEventListener('change', async () => {
+        sel.disabled = true;
+        try { await api('/api/staff/bookings/' + b.id + '/status', { method: 'POST', body: { status: sel.value } }); }
+        catch (ex) { alert(ex.message); }
+        load();
+      });
+      const more = el('button', 'btn btn-ghost btn-sm', 'Ученик и заметки'); more.type = 'button'; more.addEventListener('click', () => openStudent(b.studentKey));
+      acts.append(sel, more);
+      c.append(when, body, acts);
+      return c;
+    };
+    const renderLessons = () => {
+      const box = $('#lessonList'); box.replaceChildren();
+      let items, empty;
+      if (lf === 'upcoming') { items = all().filter(b => isAct(b) && !isPast(b)); empty = 'Предстоящих занятий нет.'; }
+      else if (lf === 'mark') { items = all().filter(b => isAct(b) && isPast(b)); empty = 'Все прошедшие занятия отмечены.'; }
+      else { items = all().filter(b => !isAct(b)).sort((a, b) => b.start.localeCompare(a.start)); empty = 'История пока пуста.'; }
+      if (!items.length) { const e = el('div', 'empty'); e.append(el('p', null, empty)); box.append(e); return; }
+      let last = '';
+      items.forEach(b => {
+        const d = b.start.slice(0, 10);
+        if (d !== last) { last = d; box.append(el('h4', 'day-head', dateLabel(d) + (d === D.today ? ' · сегодня' : d === addDays(D.today, 1) ? ' · завтра' : ''))); }
+        box.append(lessonCard(b));
+      });
+    };
+
+    // --- Закрытое время ---
+    const bf = $('#blockForm'), bErr = $('#blockError');
+    const renderBlocks = () => {
+      const box = $('#blockList'); box.replaceChildren();
+      const items = D.blocks.filter(k => k.dateTo >= D.today);
+      if (!items.length) { const e = el('div', 'empty'); e.append(el('p', null, 'Закрытого времени нет — вы принимаете каждый день с ' + D.config.workStart + ':00 до ' + D.config.workEnd + ':00.')); box.append(e); return; }
+      items.forEach(k => {
+        const c = el('div', 'block-item');
+        const t = el('div');
+        t.append(el('b', null, k.dateFrom === k.dateTo ? dateLabel(k.dateFrom) : dateLabel(k.dateFrom) + ' — ' + dateLabel(k.dateTo)),
+          el('span', 'meta', (k.fromHour === D.config.workStart && k.toHour === D.config.workEnd ? 'Весь день' : p2(k.fromHour) + ':00–' + p2(k.toHour) + ':00') + (k.reason ? ' · ' + k.reason : '')));
+        const b = el('button', 'btn btn-ghost btn-sm', 'Открыть время'); b.type = 'button';
+        b.addEventListener('click', async () => {
+          if (!confirm('Открыть это время для записи?')) return;
+          b.disabled = true;
+          try { await api('/api/staff/blocks/' + k.id + '/delete', { method: 'POST' }); } catch (ex) { alert(ex.message); }
+          load();
+        });
+        c.append(t, b); box.append(c);
+      });
+    };
+    const fillHours = () => {
+      if (bf.fromHour.options.length) return;
+      for (let h = D.config.workStart; h < D.config.workEnd; h++) bf.fromHour.append(new Option(p2(h) + ':00', h));
+      for (let h = D.config.workStart + 1; h <= D.config.workEnd; h++) bf.toHour.append(new Option(p2(h) + ':00', h));
+      bf.toHour.value = D.config.workEnd;
+    };
+    bf.allDay.addEventListener('change', () => { $('#hoursRow').hidden = bf.allDay.checked; });
+    bf.addEventListener('submit', async e => {
+      e.preventDefault(); bErr.className = 'form-error'; bErr.textContent = '';
+      const body = { tutor, dateFrom: bf.dateFrom.value, dateTo: bf.dateTo.value, allDay: bf.allDay.checked, fromHour: Number(bf.fromHour.value), toHour: Number(bf.toHour.value), reason: bf.reason.value };
+      const send = cancel => api('/api/staff/blocks', { method: 'POST', body: Object.assign({}, body, { cancelConflicts: cancel }) });
+      const btn = $('[type=submit]', bf); btn.disabled = true;
+      try {
+        let r;
+        try { r = await send(false); }
+        catch (ex) { if (ex.status === 409 && confirm(ex.message + '\n\nОтменить эти записи и закрыть время?')) r = await send(true); else throw ex; }
+        bErr.className = 'form-error form-ok';
+        bErr.textContent = 'Время закрыто.' + (r.cancelled ? ' Отменено записей: ' + r.cancelled + '.' : '');
+        bf.dateFrom.value = ''; bf.dateTo.value = ''; bf.reason.value = '';
+        await load();
+      } catch (ex) { bErr.textContent = ex.message; }
+      btn.disabled = false;
+    });
+    $$('[data-quick]', bf).forEach(q => q.addEventListener('click', () => {
+      const day = q.dataset.quick === 'today' ? D.today : addDays(D.today, 1);
+      if (!confirm('Закрыть ' + dateLabel(day) + ' целиком?')) return;
+      bf.dateFrom.value = day; bf.dateTo.value = ''; bf.allDay.checked = true; $('#hoursRow').hidden = true;
+      bf.requestSubmit();
+    }));
+
+    // --- Список учеников ---
+    const renderStudents = () => {
+      const box = $('#studentList'); box.replaceChildren();
+      const q = $('#studentSearch').value.trim().toLowerCase();
+      const list = students().filter(s => !q || (s.name + ' ' + s.phone + ' ' + s.account.name).toLowerCase().includes(q));
+      if (!list.length) { const e = el('div', 'empty'); e.append(el('p', null, q ? 'Никого не найдено.' : 'Учеников пока нет — они появятся после первой записи.')); box.append(e); return; }
+      list.forEach(s => {
+        const c = el('button', 'student-card'); c.type = 'button';
+        c.append(el('b', null, s.name), el('span', 'meta', s.grade + ' класс · ' + s.subject + ' · ' + s.goal),
+          el('span', 'meta', 'Проведено: ' + s.done + ' · предстоит: ' + s.upcoming + ' · отменено: ' + s.cancelled + ' · заметок: ' + s.notes.length));
+        c.addEventListener('click', () => openStudent(s.key));
+        box.append(c);
+      });
+    };
+    $('#studentSearch').addEventListener('input', renderStudents);
+
+    // --- Карточка ученика: контакты, заметки, история ---
+    const stModal = $('#studentModal'), nf = $('#noteForm'), nErr = $('#noteError');
+    const closeStudent = () => { stModal.classList.remove('open'); openKey = null; };
+    const fillStudent = () => {
+      const s = students().find(x => x.key === openKey); if (!s) { closeStudent(); return; }
+      $('#stTitle').textContent = s.name;
+      $('#stSub').textContent = s.grade + ' класс · ' + s.subject + ' · ' + s.goal;
+      const ct = $('#stContacts'); ct.replaceChildren();
+      const pl = el('a', null, s.phone); pl.href = tel(s.phone); ct.append(pl);
+      if (s.email) { const ml = el('a', null, s.email); ml.href = 'mailto:' + s.email; ct.append(ml); }
+      ct.append(el('span', null, 'Аккаунт: ' + s.account.name));
+      const st = $('#stStats'); st.replaceChildren();
+      [['Проведено', s.done], ['Предстоит', s.upcoming], ['Отменено', s.cancelled]].forEach(([l, n]) => { const d = el('div'); d.append(el('b', null, String(n)), el('span', null, l)); st.append(d); });
+      const prev = nf.bookingId.value; nf.bookingId.replaceChildren(new Option('Без привязки к занятию', ''));
+      s.lessons.slice(0, 30).forEach(b => nf.bookingId.append(new Option(b.slot + ' · ' + STATUS[b.status], b.id)));
+      nf.bookingId.value = [...nf.bookingId.options].some(o => o.value === prev) ? prev : '';
+
+      const nl = $('#noteList'); nl.replaceChildren();
+      if (!s.notes.length) nl.append(el('p', 'muted-small', 'Заметок пока нет.'));
+      s.notes.forEach(n => {
+        const bk = n.bookingId ? s.lessons.find(b => b.id === n.bookingId) : null;
+        const c = el('div', 'note');
+        c.append(el('small', null, fmtDate(n.createdAt) + ' · ' + n.author + (bk ? ' · к занятию ' + bk.slot : '') + (n.updatedAt !== n.createdAt ? ' · изменена' : '')));
+        const text = el('p', 'note-text', n.text);
+        const acts = el('div', 'note-actions');
+        const ed = el('button', 'link-btn', 'Изменить'); ed.type = 'button';
+        ed.addEventListener('click', () => {
+          const ta = el('textarea'); ta.value = n.text; ta.maxLength = 2000; ta.setAttribute('aria-label', 'Текст заметки');
+          const save = el('button', 'btn btn-primary btn-sm', 'Сохранить'); save.type = 'button';
+          const cancel = el('button', 'btn btn-ghost btn-sm', 'Отмена'); cancel.type = 'button';
+          cancel.addEventListener('click', fillStudent);
+          save.addEventListener('click', async () => {
+            save.disabled = true;
+            try { await api('/api/staff/notes/' + n.id, { method: 'POST', body: { text: ta.value } }); await load(); }
+            catch (ex) { alert(ex.message); save.disabled = false; }
+          });
+          text.replaceWith(ta); acts.replaceChildren(save, cancel); ta.focus();
+        });
+        const del = el('button', 'link-btn danger', 'Удалить'); del.type = 'button';
+        del.addEventListener('click', async () => {
+          if (!confirm('Удалить заметку?')) return;
+          try { await api('/api/staff/notes/' + n.id + '/delete', { method: 'POST' }); await load(); } catch (ex) { alert(ex.message); }
+        });
+        acts.append(ed, del); c.append(text, acts); nl.append(c);
+      });
+
+      const hs = $('#stHistory'); hs.replaceChildren();
+      s.lessons.forEach(b => {
+        const r = el('div', 'hist-row');
+        const t = el('div'); t.append(el('b', null, b.slot), el('span', 'meta', b.subject + ' · ' + b.goal + (b.moves && b.moves.length ? ' · перенесена' : '')));
+        const tag = el('span', 'status st-' + b.status, b.status === 'cancelled' ? 'Отменена ' + who(b.cancelledBy) : STATUS[b.status]);
+        const add = el('button', 'link-btn', '+ заметка'); add.type = 'button';
+        add.addEventListener('click', () => { nf.bookingId.value = String(b.id); nf.text.focus(); });
+        r.append(t, tag, add); hs.append(r);
+      });
+    };
+    const openStudent = key => { openKey = key; nErr.textContent = ''; nf.text.value = ''; nf.bookingId.replaceChildren(); fillStudent(); stModal.classList.add('open'); nf.text.focus(); };
+    nf.addEventListener('submit', async e => {
+      e.preventDefault(); nErr.textContent = '';
+      const btn = $('[type=submit]', nf); btn.disabled = true;
+      try {
+        await api('/api/staff/notes', { method: 'POST', body: { tutor, studentKey: openKey, text: nf.text.value, bookingId: nf.bookingId.value ? Number(nf.bookingId.value) : undefined } });
+        nf.text.value = ''; await load();
+      } catch (ex) { nErr.textContent = ex.message; }
+      btn.disabled = false;
+    });
+    $('.close-modal', stModal).addEventListener('click', closeStudent);
+    stModal.addEventListener('click', e => { if (e.target === stModal) closeStudent(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeStudent(); });
+
+    // --- Вкладки и загрузка ---
+    $$('[data-ctab]').forEach(t => t.addEventListener('click', () => {
+      $$('[data-ctab]').forEach(x => x.classList.toggle('active', x === t));
+      ['lessons', 'closed', 'students'].forEach(n => { $('#ctab' + n[0].toUpperCase() + n.slice(1)).hidden = t.dataset.ctab !== n; });
+    }));
+    $$('[data-lf]').forEach(t => t.addEventListener('click', () => { lf = t.dataset.lf; $$('[data-lf]').forEach(x => x.classList.toggle('active', x === t)); renderLessons(); }));
+
+    const render = () => {
+      $('.page-title').textContent = 'Кабинет: ' + D.tutorName;
+      const tb = $('#cabTutors');
+      if (Object.keys(D.tutors).length > 1 && !tb.children.length) {
+        tb.hidden = false;
+        Object.entries(D.tutors).forEach(([k, n]) => {
+          const b = el('button', 'filter' + (k === tutor ? ' active' : ''), n); b.type = 'button';
+          b.addEventListener('click', () => { tutor = k; $$('.filter', tb).forEach(x => x.classList.toggle('active', x === b)); closeStudent(); load(); });
+          tb.append(b);
+        });
+      }
+      fillHours();
+      bf.dateFrom.min = bf.dateTo.min = D.today;
+      renderStats(); renderLessons(); renderBlocks(); renderStudents();
+      if (openKey) fillStudent();
+    };
+    const load = async () => {
+      try { D = await api('/api/staff/overview' + (tutor ? '?tutor=' + encodeURIComponent(tutor) : '')); tutor = D.tutor; render(); }
+      catch (ex) { if (ex.status === 401 || ex.status === 403) location.reload(); }
+    };
+    await load();
+    setInterval(() => { if (!stModal.classList.contains('open')) load(); }, 60000);
   }
 });

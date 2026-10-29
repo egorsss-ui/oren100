@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Восстановление пароля — OREN100</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
+<main class="auth-page"><div class="auth-card">
+<h2>Восстановление пароля</h2><p class="lead">Укажите email, с которым вы регистрировались. Мы отправим ссылку, по которой можно задать новый пароль.</p>
+<form id="forgotForm" novalidate>
+<label class="field">Email<input type="email" name="email" required maxlength="120" autocomplete="email" placeholder="name@example.com"></label>
+<p class="form-error" id="formError" role="alert"></p>
+<button type="submit" class="btn btn-primary btn-block">Отправить ссылку</button>
+</form>
+<div class="success" id="forgotDone" hidden><div class="tick">✓</div><h3>Проверьте почту</h3><p>Если аккаунт с таким email существует, мы отправили на него ссылку для смены пароля. Она действует 1 час. Загляните и в папку «Спам».</p><p class="muted-small">Письмо не приходит? Напишите нам или попросите администратора выдать ссылку вручную.</p></div>
+<p class="auth-links"><a href="login.html">← Вернуться ко входу</a></p>
+</div></main>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
+<script src="script.js"></script>
+</body>
+</html>

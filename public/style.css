@@ -277,7 +277,7 @@ img,svg,video{max-width:100%}
 @media(max-width:800px){
   .header-inner{flex-wrap:wrap;padding:10px 16px;gap:0}
   .logo{order:1}
-  .burger{display:flex;order:2;margin-left:auto;flex-direction:column;justify-content:center;gap:5px;width:44px;height:44px;padding:0 13px;border:0;border-radius:50%;background:var(--soft);cursor:pointer;transition:background .2s}
+  .burger{display:flex;order:2;margin-left:auto;flex-direction:column;justify-content:center;gap:5px;width:44px;height:44px;padding:0 11px;border:2px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
   .burger span{display:block;height:2px;border-radius:2px;background:var(--brand);transition:transform .2s,opacity .2s}
   header.open .burger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
   header.open .burger span:nth-child(2){opacity:0}
@@ -365,30 +365,96 @@ img,svg,video{max-width:100%}
 }
 @media(min-width:1000px){.day h4{min-height:50px}}
 
-@media(max-width:800px){
-  .burger:active{transform:scale(.94)}
-  header.open .burger{background:var(--brand)}
-  header.open .burger span{background:#fff}
-}
+/* ===== Согласие, восстановление пароля, перенос записи, кабинет репетитора ===== */
+footer .foot-links{display:flex;justify-content:center;gap:6px 22px;flex-wrap:wrap;margin-top:10px}
+footer .foot-links a{color:#d9d7f5;text-decoration:underline;text-underline-offset:3px}
+footer .foot-links a:hover{color:#fff}
+.check.consent{align-items:flex-start;margin-top:16px;font-weight:500;line-height:1.45}
+.check.consent input{flex:none;margin-top:2px}
+.check.consent a,.form-note a,.inline-link{color:var(--brand);font-weight:700;text-decoration:underline;text-underline-offset:2px}
+.form-note{font-size:13px;color:var(--muted);margin:12px 0 0}
+.forgot{margin:10px 0 0;font-size:14px;text-align:right}.forgot a{color:var(--brand);font-weight:700}
+.muted-small{font-size:13px;color:var(--muted);margin:6px 0 0}
+.inline-link{white-space:nowrap}
+.legal h3{font-size:19px;margin:28px 0 8px}.legal h4{font-size:16px;margin:16px 0 6px}
+.legal p,.legal li{color:#3b3763;overflow-wrap:anywhere}.legal ul{padding-left:22px}.legal li{margin-bottom:6px}
+.legal mark{background:#fff4cc;color:var(--ink);padding:0 4px;border-radius:4px}
+.legal-draft{background:#fff4cc;border-left:5px solid #e0a800;border-radius:12px;padding:12px 16px;font-size:14px}
 
-/* Телефон: плитки со статистикой друг под другом — длинные подписи никогда не вылезают */
+/* перенос записи */
+.booking-actions{display:flex;gap:8px;flex-wrap:wrap}
+.booking-item .locked{margin:0;font-size:13px;color:var(--muted);max-width:280px}
+.booking-item .moved{color:var(--brand);font-weight:600}
+.notice{background:#dcf5ea;color:#12684a;border-radius:var(--r);padding:14px 18px;margin-bottom:14px;font-weight:700}
+.modal.modal-wide{max-width:520px}
+.move-hint{margin:6px 0 14px;font-size:14px}
+.move-days{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch}
+.move-day{flex:none;min-width:64px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 6px;border:2px solid var(--line);border-radius:12px;background:#fff;font-family:inherit;color:var(--ink);cursor:pointer}
+.move-day b{font-size:12px;color:var(--muted)}.move-day span{font-size:13px;font-weight:800}.move-day small{font-size:10px;color:var(--ok);font-weight:700}
+.move-day.none small{color:var(--muted)}
+.move-day.active{background:var(--brand);border-color:var(--brand);color:#fff}.move-day.active b,.move-day.active small{color:#fff}
+.move-slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+
+/* кабинет */
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:22px;margin-bottom:24px;max-width:640px}
+.panel h3{font-size:20px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-row .field small{font-weight:500;color:var(--muted)}
+.panel .check{margin-top:14px}
+.quick{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+.sub-title{font-size:20px;margin:8px 0 12px}
+.mini-title{font-size:16px;margin:22px 0 8px}
+.tabs{margin-top:4px}
+.filter .count{display:inline-block;min-width:20px;padding:0 6px;margin-left:4px;border-radius:99px;background:#e5484d;color:#fff;font-size:12px;line-height:20px}
+.day-head{font-size:15px;margin:18px 0 8px;color:var(--muted)}
+.lesson{display:grid;grid-template-columns:96px 1fr auto;gap:14px 18px;align-items:start;background:#fff;border:1px solid var(--line);border-left:5px solid var(--brand);border-radius:var(--r);padding:14px 18px;margin-bottom:10px}
+.lesson.st-b-new{border-left-color:#e0a800}.lesson.st-b-confirmed{border-left-color:var(--ok)}.lesson.st-b-cancelled{border-left-color:#b3b1c9;opacity:.8}
+.lesson.overdue{box-shadow:0 0 0 2px #e5484d}
+.lesson-when b{display:block;font-size:22px;letter-spacing:-.5px;color:var(--brand)}.lesson-when span{font-size:13px;color:var(--muted)}
+.lesson-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lesson-body .meta,.block-item .meta,.student-card .meta,.hist-row .meta{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.lesson-body .tel{color:var(--brand);font-weight:700}
+.lesson-body .quote{font-style:italic}
+.lesson-body .moved,.hist-row .moved{color:var(--brand);font-weight:600}
+.lesson-actions{display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:190px}
+.lesson-actions select,.note textarea{padding:10px 12px;border:2px solid var(--line);border-radius:10px;font:600 14px inherit;font-family:inherit;background:#fff;color:var(--ink)}
+.link-btn{border:0;background:none;padding:0;font:700 16px inherit;font-family:inherit;color:var(--ink);text-align:left;cursor:pointer}
+.lesson-body .link-btn{color:var(--ink)}.link-btn:hover{color:var(--brand)}
+.note-actions .link-btn,.hist-row .link-btn{font-size:14px;color:var(--brand)}.link-btn.danger{color:#c0262d!important}
+.block-item,.student-card{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;margin-bottom:10px;width:100%;text-align:left;font-family:inherit;color:var(--ink)}
+.block-item b,.student-card b{display:block;font-size:17px}
+.block-item .meta{display:block}
+.student-card{flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.student-card:hover{border-color:var(--brand);box-shadow:0 8px 22px rgba(74,55,232,.12)}
+.student-card .meta{display:block}
+.st-contacts{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;font-size:14px}.st-contacts a{color:var(--brand);font-weight:700}.st-contacts span{color:var(--muted)}
+.st-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.st-stats div{background:var(--soft);border-radius:12px;padding:10px;text-align:center}.st-stats b{display:block;font-size:22px;color:var(--brand)}.st-stats span{font-size:12px;color:var(--muted)}
+.note-form .field{margin-top:10px}.note-form .btn{margin-top:12px}
+.modal .note-form .btn-primary{margin-top:12px}
+.note{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:#fbfaff}
+.note small{display:block;color:var(--muted);font-size:12px}
+.note-text{margin:6px 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
+.note textarea{width:100%;min-height:90px;margin:8px 0;font-weight:500;font-size:16px}
+.note-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.hist-row{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.hist-row:last-of-type{border-bottom:0}.hist-row b{font-size:15px}.hist-row .meta{display:block}.hist-row .status{margin:0}
+.private-note{margin-top:18px}
+
 @media(max-width:700px){
-  .big-stats{grid-template-columns:1fr;gap:10px}
-  .big-stat{display:flex;align-items:center;gap:16px;padding:16px 18px;min-width:0}
-  .big-stat b{flex:none;min-width:92px;font-size:30px;white-space:nowrap}
-  .big-stat span{font-size:14px;display:block;line-height:1.3;min-width:0;overflow-wrap:anywhere}
-  .admin-stats{grid-template-columns:repeat(2,1fr)}
-  .admin-stats .big-stat{display:block}
-  .admin-stats .big-stat b{min-width:0}
-  .profile-stats{flex-wrap:wrap;row-gap:10px}
+  .form-row{grid-template-columns:1fr;gap:0}
+  .panel{padding:18px}
+  .lesson{grid-template-columns:1fr;gap:8px;padding:14px}
+  .lesson-when{display:flex;align-items:baseline;gap:10px}.lesson-when b{font-size:20px}
+  .lesson-actions{min-width:0;flex-direction:row;flex-wrap:wrap}.lesson-actions select{flex:1;min-width:150px;min-height:44px;font-size:16px}.lesson-actions .btn{flex:1;min-width:140px}
+  .block-item{flex-direction:column;align-items:stretch}.block-item .btn{width:100%}
+  .hist-row{grid-template-columns:1fr auto}.hist-row .link-btn{grid-column:1/-1;padding:6px 0;min-height:36px}
+  .move-slots{grid-template-columns:repeat(3,1fr)}
+  .booking-actions{width:100%}.booking-actions .btn{flex:1}
+  .booking-item .locked{max-width:none}
+  .filters{gap:6px}.filter{padding:9px 14px}
+  .admin-filters input,.field input,.field select,.field textarea,.admin-table select{font-size:16px}
+  .link-btn{min-height:36px}
+  .st-stats b{font-size:20px}
+  .forgot{text-align:left}
 }
-.profile-stat,.big-stat{min-width:0}
-@media(max-width:380px){
-  .big-stat{gap:12px;padding:14px}
-  .big-stat b{min-width:78px;font-size:25px}
-  .big-stat span{font-size:13px}
-}
-
-/* Кнопки в пустых блоках («Мои записи»): ровный отступ между ними */
-.empty-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
-@media(max-width:700px){.empty-actions .btn{flex:1 1 140px}}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Новый пароль — OREN100</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
+<main class="auth-page"><div class="auth-card">
+<h2>Новый пароль</h2><p class="lead">Придумайте новый пароль — не короче 8 символов.</p>
+<form id="resetForm" novalidate>
+<label class="field">Новый пароль<input type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="Не короче 8 символов"></label>
+<label class="field">Повторите пароль<input type="password" name="password2" required autocomplete="new-password" placeholder="Ещё раз пароль"></label>
+<p class="form-error" id="formError" role="alert"></p>
+<button type="submit" class="btn btn-primary btn-block">Сохранить пароль</button>
+</form>
+<div class="success" id="resetDone" hidden><div class="tick">✓</div><h3>Пароль изменён</h3><p>Теперь можно войти с новым паролем. На других устройствах вход завершён.</p><a href="login.html" class="btn btn-primary btn-block">Войти</a></div>
+<p class="auth-links" id="resetBack"><a href="forgot.html">Запросить ссылку заново</a></p>
+</div></main>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
+<script src="script.js"></script>
+</body>
+</html>

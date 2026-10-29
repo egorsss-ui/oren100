@@ -10,7 +10,16 @@
 <body>
 <header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
 <main class="container narrow"><h2 class="section-title page-title">Мои записи</h2><p class="section-sub">Вся история ваших записей: активные и отменённые занятия</p><div id="bookingsList"></div></main>
-<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p></footer>
+<div class="modal-backdrop" id="moveModal" role="dialog" aria-modal="true" aria-labelledby="moveTitle"><div class="modal modal-wide">
+<button class="close-modal" type="button" aria-label="Закрыть">&times;</button>
+<h3 id="moveTitle">Перенос записи</h3><p class="modal-when" id="moveWhen"></p>
+<p class="section-sub move-hint">Выберите новое время — данные ученика сохранятся, заново заполнять форму не нужно.</p>
+<div class="move-days" id="moveDays" role="group" aria-label="День"></div>
+<div class="move-slots" id="moveSlots"></div>
+<p class="form-error" id="moveError" role="alert"></p>
+<button type="button" class="btn btn-primary btn-block" id="moveConfirm" disabled>Выберите новое время</button>
+</div></div>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
 <script src="script.js"></script>
 </body>
 </html>

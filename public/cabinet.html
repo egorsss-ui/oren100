@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Кабинет репетитора — OREN100</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="header-inner"><a href="index.html" class="logo">OREN<b>100</b></a><nav><a href="index.html#tutors">Репетиторы</a><a href="index.html#how">Как это работает</a><a href="faq.html">Вопросы</a><a href="bookings.html">Мои записи</a></nav><div class="header-actions"><a href="login.html" class="btn btn-ghost btn-sm">Войти</a><a href="register.html" class="btn btn-primary btn-sm">Регистрация</a></div></div></header>
+<main class="container">
+<h2 class="section-title page-title">Кабинет репетитора</h2>
+<p class="section-sub">Ваши занятия, закрытие времени и заметки об учениках. Время — московское.</p>
+<div class="empty" id="cabGate" hidden><p>Кабинет доступен репетиторам и администратору. Войдите под своей учётной записью.</p><a href="login.html?next=cabinet.html" class="btn btn-primary">Войти</a></div>
+<div id="cabApp" hidden>
+<div class="filters" id="cabTutors" role="group" aria-label="Репетитор" hidden></div>
+<div class="admin-stats" id="cabStats"></div>
+<div class="filters tabs" role="group" aria-label="Раздел"><button type="button" class="filter active" data-ctab="lessons">Занятия</button><button type="button" class="filter" data-ctab="closed">Закрытое время</button><button type="button" class="filter" data-ctab="students">Ученики</button></div>
+
+<section id="ctabLessons">
+<div class="filters" id="lessonFilter" role="group" aria-label="Показать"><button type="button" class="filter active" data-lf="upcoming">Предстоящие</button><button type="button" class="filter" data-lf="mark">Нужно отметить итог <span class="count" id="markCount"></span></button><button type="button" class="filter" data-lf="history">История</button></div>
+<div id="lessonList"></div>
+</section>
+
+<section id="ctabClosed" hidden>
+<form id="blockForm" class="panel" novalidate>
+<h3>Закрыть время</h3>
+<p class="muted-small">Ученики не смогут записаться на закрытое время. Причина видна только вам.</p>
+<div class="quick"><button type="button" class="btn btn-ghost btn-sm" data-quick="today">Сегодня выходной</button><button type="button" class="btn btn-ghost btn-sm" data-quick="tomorrow">Завтра выходной</button></div>
+<div class="form-row"><label class="field">С даты<input type="date" name="dateFrom" required></label><label class="field">По дату <small>(для отпуска, необязательно)</small><input type="date" name="dateTo"></label></div>
+<label class="check"><input type="checkbox" name="allDay" checked>Весь день</label>
+<div class="form-row" id="hoursRow" hidden><label class="field">С<select name="fromHour"></select></label><label class="field">До<select name="toHour"></select></label></div>
+<label class="field">Причина<input type="text" name="reason" maxlength="120" placeholder="Например: выходной, отпуск, болезнь"></label>
+<p class="form-error" id="blockError" role="alert"></p>
+<button type="submit" class="btn btn-primary">Закрыть время</button>
+</form>
+<h3 class="sub-title">Закрытое время</h3>
+<div id="blockList"></div>
+</section>
+
+<section id="ctabStudents" hidden>
+<div class="admin-filters"><input type="search" id="studentSearch" placeholder="Поиск: имя ученика, телефон" aria-label="Поиск ученика"></div>
+<div id="studentList"></div>
+</section>
+</div>
+</main>
+
+<div class="modal-backdrop" id="studentModal" role="dialog" aria-modal="true" aria-labelledby="stTitle"><div class="modal modal-wide">
+<button class="close-modal" type="button" aria-label="Закрыть">&times;</button>
+<h3 id="stTitle"></h3><p class="modal-when" id="stSub"></p>
+<div class="st-contacts" id="stContacts"></div>
+<div class="st-stats" id="stStats"></div>
+<h4 class="mini-title">Заметки</h4>
+<form id="noteForm" class="note-form">
+<label class="field">Новая заметка<textarea name="text" maxlength="2000" required placeholder="Например: слабо с производной, домашнее сделано, цель — 80+ баллов"></textarea></label>
+<label class="field">К занятию<select name="bookingId"></select></label>
+<p class="form-error" id="noteError" role="alert"></p>
+<button type="submit" class="btn btn-primary btn-sm">Добавить заметку</button>
+</form>
+<div id="noteList"></div>
+<h4 class="mini-title">История занятий</h4>
+<div id="stHistory"></div>
+<p class="muted-small private-note">Заметки видят только репетитор и администратор. Ученики и родители их не видят.</p>
+</div></div>
+<footer><p><b>OREN100</b> — занятия для школьников 5–11 классов</p><p>&copy; <span class="year">2026</span> OREN100. Все права защищены.</p><p class="foot-links"><a href="privacy.html">Политика конфиденциальности</a><a href="consent.html">Согласие на обработку персональных данных</a></p></footer>
+<script src="script.js"></script>
+</body>
+</html>
