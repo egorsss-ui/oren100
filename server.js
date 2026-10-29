@@ -8,6 +8,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const net = require('net');
+const tls = require('tls');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -54,18 +56,25 @@ function validStart(start) { // существует ли такая дата и
   return +m[4] >= WORK_START && +m[4] < WORK_END;
 }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONSENT_VERSION = '2026-10-29';   // версия текста согласия/политики; при смене текста обновите дату
+const RESET_TTL = 60 * 60e3;            // ссылка восстановления пароля живёт 1 час
+const MAX_RESCHEDULES = 3;              // сколько раз одну запись можно перенести
+const DAY_MS = 86400e3;
+const isDate = d => { const m = typeof d === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(d); return !!m && ymd(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))) === d; };
 
 // ---------------- База данных (JSON-файл) ----------------
-let db = { users: [], sessions: [], bookings: [] };
+let db = { users: [], sessions: [], bookings: [], blocks: [], notes: [], resets: [] };
 
 function loadDb() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   try {
-    db = Object.assign({ users: [], sessions: [], bookings: [] }, JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
+    db = Object.assign({ users: [], sessions: [], bookings: [], blocks: [], notes: [], resets: [] }, JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
   } catch (e) {
     if (e.code !== 'ENOENT') throw new Error('Не удалось прочитать ' + DB_FILE + ': ' + e.message);
   }
   db.sessions = db.sessions.filter(s => s.exp > Date.now());
+  ['blocks', 'notes', 'resets'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; });
+  db.resets = db.resets.filter(r => r.exp > Date.now());
   migrateBookings();
 }
 // Старые записи хранили только текст «Ср, 23 окт 10:00» (без года). Достраиваем точную дату `start`.
@@ -134,7 +143,7 @@ function currentUser(req) {
   const s = db.sessions.find(x => x.h === sha(t) && x.exp > Date.now());
   return s ? db.users.find(u => u.id === s.userId) || null : null;
 }
-const publicUser = u => ({ id: u.id, name: u.name, email: u.email, phone: u.phone, type: u.type, role: u.role });
+const publicUser = u => ({ id: u.id, name: u.name, email: u.email, phone: u.phone, type: u.type, role: u.role, tutor: u.role === 'tutor' ? u.tutor || null : null, needsConsent: !u.consentAt });
 
 // ---------------- Ограничение попыток ----------------
 const attempts = new Map();
@@ -145,6 +154,67 @@ function tooMany(key, max, windowMs) {
   return arr.length >= max;
 }
 const noteAttempt = key => attempts.set(key, [...(attempts.get(key) || []), Date.now()]);
+
+// ---------------- Почта (восстановление пароля) ----------------
+// Настройка через переменные окружения: SMTP_HOST, SMTP_PORT (465), SMTP_USER, SMTP_PASS, SMTP_FROM, SITE_URL.
+// Без SMTP письма не отправляются: ссылка печатается в консоль сервера, а админ может выдать её в панели.
+const SMTP = { host: process.env.SMTP_HOST || '', port: Number(process.env.SMTP_PORT) || 465, user: process.env.SMTP_USER || '', pass: process.env.SMTP_PASS || '',
+  from: process.env.SMTP_FROM || process.env.SMTP_USER || '', secure: (process.env.SMTP_SECURE || 'ssl') !== 'none' };
+function sendMail(to, subject, text) {
+  return new Promise((resolve, reject) => {
+    const sock = SMTP.secure ? tls.connect({ host: SMTP.host, port: SMTP.port, servername: SMTP.host }) : net.connect({ host: SMTP.host, port: SMTP.port });
+    sock.setEncoding('utf8'); sock.setTimeout(20000, () => done(new Error('SMTP: таймаут')));
+    let buf = '', step = 0, finished = false, waiting = null;
+    const fromAddr = (/<([^>]+)>/.exec(SMTP.from) || [null, SMTP.from])[1];
+    const b64 = t => Buffer.from(t, 'utf8').toString('base64');
+    const body = b64(text).replace(/(.{76})/g, '$1\r\n');
+    const msg = ['From: ' + SMTP.from, 'To: ' + to, 'Subject: =?UTF-8?B?' + b64(subject) + '?=', 'Date: ' + new Date().toUTCString(),
+      'Message-ID: <' + crypto.randomBytes(12).toString('hex') + '@oren100>', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64', '', body, '.', ''].join('\r\n');
+    const cmds = [null, 'EHLO oren100'];
+    if (SMTP.user) cmds.push('AUTH LOGIN', b64(SMTP.user), b64(SMTP.pass));
+    cmds.push('MAIL FROM:<' + fromAddr + '>', 'RCPT TO:<' + to + '>', 'DATA', msg, 'QUIT');
+    function done(err) { if (finished) return; finished = true; sock.destroy(); err ? reject(err) : resolve(); }
+    sock.on('error', done);
+    sock.on('close', () => done(step >= cmds.length ? null : new Error('SMTP: соединение закрыто')));
+    sock.on('data', chunk => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\r\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (/^\d{3}-/.test(line)) continue; // продолжение многострочного ответа
+        const code = Number(line.slice(0, 3));
+        if (code >= 400) return done(new Error('SMTP: ' + line));
+        step++;
+        if (step >= cmds.length) return done(null);
+        sock.write(cmds[step] + (cmds[step].endsWith('\r\n') ? '' : '\r\n'));
+      }
+    });
+  });
+}
+function resetLink(req, token) {
+  const base = (process.env.SITE_URL || ('http://' + (req.headers.host || 'localhost:' + PORT))).replace(/\/+$/, '');
+  return base + '/reset.html?token=' + token;
+}
+function makeResetToken(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  db.resets = db.resets.filter(r => r.exp > Date.now() && r.userId !== userId);
+  db.resets.push({ h: sha(token), userId, exp: Date.now() + RESET_TTL });
+  saveDb();
+  return token;
+}
+function deliverReset(req, user, token) {
+  const link = resetLink(req, token);
+  if (!SMTP.host || !process.env.SITE_URL) {
+    if (SMTP.host) console.warn('Для отправки писем задайте SITE_URL (адрес сайта), иначе ссылка не отправляется по почте.');
+    console.log('\n[Восстановление пароля] ' + user.email + '\n' + link + '\n');
+    return;
+  }
+  sendMail(user.email, 'OREN100 — восстановление пароля',
+    'Здравствуйте, ' + user.name + '!\n\nЧтобы задать новый пароль, перейдите по ссылке (действует 1 час):\n' + link +
+    '\n\nЕсли вы не запрашивали восстановление, просто проигнорируйте это письмо — пароль не изменится.\n\nOREN100')
+    .catch(e => console.error('Не удалось отправить письмо для ' + user.email + ': ' + e.message));
+}
 
 // ---------------- Утилиты HTTP ----------------
 function send(res, status, obj) {
@@ -171,6 +241,30 @@ const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 // ---------------- API ----------------
 const activeBooking = b => b.status !== 'cancelled';
+const studentKey = b => b.userId + '|' + String(b.student || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const isBlocked = (tutor, start) => {
+  const date = start.slice(0, 10), h = Number(start.slice(11, 13));
+  return db.blocks.some(k => k.tutor === tutor && date >= k.dateFrom && date <= k.dateTo && h >= k.fromHour && h < k.toHour);
+};
+const canChange = b => (b.status === 'new' || b.status === 'confirmed') && !!b.start && startToMs(b.start) - Date.now() >= DAY_MS;
+function checkStart(start) { // время существует, в рабочих часах, не слишком скоро и не слишком далеко
+  if (!validStart(start)) fail(400, 'Некорректное время занятия. Занятия проходят ежедневно с ' + WORK_START + ':00 до ' + WORK_END + ':00 по Москве.');
+  if (startToMs(start) < Date.now() + MIN_LEAD_MIN * 60e3) fail(400, 'Это время уже прошло или начнётся слишком скоро. Выберите другое окошко.');
+  const n = mskNow();
+  const lastDay = ymd(new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + HORIZON_DAYS - 1)));
+  if (start.slice(0, 10) > lastDay) fail(400, 'Запись открыта только на ближайшую неделю (до ' + slotLabel(lastDay + ' 00:00').replace(/ 00:00$/, '') + ').');
+}
+function checkFree(tutor, start, ignoreId) { // репетитор принимает в это время и окошко не занято
+  if (isBlocked(tutor, start)) fail(409, 'Репетитор в это время не принимает. Выберите другое окошко.');
+  if (db.bookings.some(x => x.id !== ignoreId && activeBooking(x) && sameSlot(x, { tutor, start, slot: slotLabel(start) }))) fail(409, 'Это время уже занято. Выберите другое окошко.');
+}
+function applyStatus(bk, status, by) {
+  if (!STATUSES.includes(status)) fail(400, 'Неизвестный статус');
+  if (status !== 'cancelled' && bk.status === 'cancelled' && (isBlocked(bk.tutor, bk.start || '') ||
+      db.bookings.some(x => x.id !== bk.id && sameSlot(x, bk) && activeBooking(x)))) fail(409, 'Это время уже занято или закрыто.');
+  bk.status = status; bk.updatedAt = new Date().toISOString();
+  if (status === 'cancelled') bk.cancelledBy = by; else delete bk.cancelledBy;
+}
 const sameSlot = (a, b) => a.tutor === b.tutor && (a.start && b.start ? a.start === b.start : a.slot === b.slot);
 
 async function handleApi(req, res, url) {
@@ -186,6 +280,9 @@ async function handleApi(req, res, url) {
   const me = currentUser(req);
   const requireUser = () => me || fail(401, 'Войдите в аккаунт, чтобы продолжить');
   const requireAdmin = () => { requireUser(); if (me.role !== 'admin') fail(403, 'Доступ только для администратора'); };
+  const requireStaff = () => { requireUser(); if (me.role !== 'admin' && !(me.role === 'tutor' && hasTutor(me.tutor))) fail(403, 'Доступ только для репетиторов и администратора'); };
+  // репетитор видит только себя; админ выбирает репетитора параметром
+  const scopeTutor = t => { requireStaff(); if (me.role === 'tutor') return me.tutor; return hasTutor(t) ? t : fail(400, 'Выберите репетитора'); };
 
   if (route === 'GET /api/me') return send(res, 200, { user: me ? publicUser(me) : null });
 
@@ -200,8 +297,10 @@ async function handleApi(req, res, url) {
     if (phone.replace(/\D/g, '').length < 10) fail(400, 'Введите корректный телефон.');
     if (!EMAIL_RE.test(email)) fail(400, 'Введите корректный email.');
     if (password.length < 8 || password.length > 200) fail(400, 'Пароль должен быть не короче 8 символов.');
+    if (b.consent !== true) fail(400, 'Для регистрации нужно согласие на обработку персональных данных.');
     if (db.users.some(u => u.email === email)) fail(409, 'Аккаунт с таким email уже существует. Попробуйте войти.');
-    const user = { id: nextId(db.users), name, email, phone, type, role: 'user', passwordHash: hashPassword(password), createdAt: new Date().toISOString() };
+    const nowIso = new Date().toISOString();
+    const user = { id: nextId(db.users), name, email, phone, type, role: 'user', passwordHash: hashPassword(password), createdAt: nowIso, consentAt: nowIso, consentVersion: CONSENT_VERSION };
     db.users.push(user);
     startSession(req, res, user.id); // saveDb внутри
     return send(res, 201, { user: publicUser(user) });
@@ -221,6 +320,33 @@ async function handleApi(req, res, url) {
 
   if (route === 'POST /api/logout') { endSession(req, res); return send(res, 200, { ok: true }); }
 
+  // Восстановление пароля. Ответ всегда одинаковый — нельзя узнать, есть ли такой email.
+  if (route === 'POST /api/forgot') {
+    const b = await readBody(req);
+    const email = str(b.email, 120).toLowerCase();
+    if (!EMAIL_RE.test(email)) fail(400, 'Введите корректный email.');
+    if (tooMany('forgot:' + ip, 6, 3600e3) || tooMany('forgotm:' + email, 3, 3600e3)) fail(429, 'Слишком много запросов. Попробуйте через час.');
+    noteAttempt('forgot:' + ip); noteAttempt('forgotm:' + email);
+    const user = db.users.find(u => u.email === email);
+    if (user) deliverReset(req, user, makeResetToken(user.id));
+    return send(res, 200, { ok: true });
+  }
+  if (route === 'POST /api/reset') {
+    if (tooMany('reset:' + ip, 20, 3600e3)) fail(429, 'Слишком много попыток. Попробуйте позже.');
+    noteAttempt('reset:' + ip);
+    const b = await readBody(req);
+    const token = str(b.token, 100), password = typeof b.password === 'string' ? b.password : '';
+    const r = token && db.resets.find(x => x.h === sha(token) && x.exp > Date.now());
+    if (!r) fail(400, 'Ссылка недействительна или устарела. Запросите восстановление ещё раз.');
+    if (password.length < 8 || password.length > 200) fail(400, 'Пароль должен быть не короче 8 символов.');
+    const user = db.users.find(u => u.id === r.userId) || fail(400, 'Ссылка недействительна.');
+    user.passwordHash = hashPassword(password);
+    db.resets = db.resets.filter(x => x.userId !== user.id);
+    db.sessions = db.sessions.filter(x => x.userId !== user.id); // все старые входы завершаются
+    saveDb();
+    return send(res, 200, { ok: true });
+  }
+
   // Расписание репетитора: ближайшие дни от СЕГОДНЯШНЕЙ даты (по Москве), рабочие часы 14:00–21:00.
   // Занятые окошки приходят без персональных данных — видны всем.
   if (route === 'GET /api/schedule') {
@@ -235,7 +361,7 @@ async function handleApi(req, res, url) {
       const d = new Date(base + i * 86400e3), date = ymd(d), slots = [];
       for (let h = WORK_START; h < WORK_END; h++) {
         const start = date + ' ' + pad2(h) + ':00';
-        slots.push({ time: pad2(h) + ':00', start, state: busy.has(start) ? 'busy' : (startToMs(start) < minMs ? 'past' : 'free') });
+        slots.push({ time: pad2(h) + ':00', start, state: busy.has(start) ? 'busy' : isBlocked(tutor, start) ? 'closed' : (startToMs(start) < minMs ? 'past' : 'free') });
       }
       days.push({ date, weekday: WEEKDAYS[d.getUTCDay()], label: d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()], slots });
     }
@@ -248,10 +374,7 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const tutor = hasTutor(b.tutor) ? b.tutor : fail(400, 'Неизвестный репетитор');
     const start = str(b.start, 20);
-    if (!validStart(start)) fail(400, 'Некорректное время занятия. Занятия проходят ежедневно с ' + WORK_START + ':00 до ' + WORK_END + ':00 по Москве.');
-    if (startToMs(start) < Date.now() + MIN_LEAD_MIN * 60e3) fail(400, 'Это время уже прошло или начнётся слишком скоро. Выберите другое окошко.');
-    const lastDay = ymd(new Date(Date.UTC(mskNow().getUTCFullYear(), mskNow().getUTCMonth(), mskNow().getUTCDate() + HORIZON_DAYS - 1)));
-    if (start.slice(0, 10) > lastDay) fail(400, 'Запись открыта только на ближайшую неделю (до ' + slotLabel(lastDay + ' 00:00').replace(/ 00:00$/, '') + ').');
+    checkStart(start);
     const slot = slotLabel(start);
     const student = str(b.student, 80), phone = str(b.phone, 30), email = str(b.email, 120), comment = str(b.comment, 500);
     const grade = Number(b.grade), subject = str(b.subject, 40), goal = str(b.goal, 60);
@@ -261,8 +384,12 @@ async function handleApi(req, res, url) {
     if (!Number.isInteger(grade) || grade < 5 || grade > 11) fail(400, 'Выберите класс (с 5 по 11).');
     if (!TUTORS[tutor].subjects.includes(subject)) fail(400, 'Выберите предмет из списка.');
     if (!GOALS.includes(goal)) fail(400, 'Выберите цель занятий.');
-    if (db.bookings.some(x => activeBooking(x) && sameSlot(x, { tutor, start, slot }))) fail(409, 'Это время уже занято. Выберите другое окошко.');
+    checkFree(tutor, start, null);
     const now = new Date().toISOString();
+    if (!me.consentAt) { // аккаунты, созданные до появления согласия
+      if (b.consent !== true) fail(400, 'Подтвердите согласие на обработку персональных данных.');
+      me.consentAt = now; me.consentVersion = CONSENT_VERSION;
+    }
     const booking = { id: nextId(db.bookings), userId: me.id, tutor, tutorName: TUTORS[tutor].name, slot, start, student, phone, email, grade, subject, goal, comment, status: 'new', createdAt: now, updatedAt: now };
     db.bookings.push(booking);
     saveDb();
@@ -272,7 +399,7 @@ async function handleApi(req, res, url) {
   // Мои записи — вся история, включая отменённые
   if (route === 'GET /api/bookings') {
     requireUser();
-    return send(res, 200, { bookings: db.bookings.filter(b => b.userId === me.id).sort((a, b) => b.id - a.id) });
+    return send(res, 200, { bookings: db.bookings.filter(b => b.userId === me.id).sort((a, b) => b.id - a.id).map(b => Object.assign({}, b, { editable: canChange(b), movesLeft: Math.max(0, MAX_RESCHEDULES - (b.moves || []).length) })) });
   }
 
   let m;
@@ -285,6 +412,111 @@ async function handleApi(req, res, url) {
     bk.status = 'cancelled'; bk.cancelledBy = 'user'; bk.updatedAt = new Date().toISOString();
     saveDb();
     return send(res, 200, { booking: bk });
+  }
+
+  // Перенос записи одной операцией: время меняется у той же записи, данные ученика сохраняются
+  if ((m = url.pathname.match(/^\/api\/bookings\/(\d+)\/reschedule$/)) && req.method === 'POST') {
+    requireUser();
+    const bk = db.bookings.find(x => x.id === Number(m[1]) && x.userId === me.id) || fail(404, 'Запись не найдена');
+    if (bk.status !== 'new' && bk.status !== 'confirmed') fail(409, 'Эту запись уже нельзя перенести.');
+    if (!bk.start) fail(409, 'Эту запись нельзя перенести автоматически. Оформите новую запись.');
+    if (startToMs(bk.start) - Date.now() < DAY_MS) fail(409, 'Перенести запись можно только не позднее чем за 24 часа до занятия.');
+    if ((bk.moves || []).length >= MAX_RESCHEDULES) fail(409, 'Запись уже переносили ' + MAX_RESCHEDULES + ' раза. Свяжитесь с репетитором.');
+    const b = await readBody(req);
+    const start = str(b.start, 20);
+    checkStart(start);
+    if (start === bk.start) fail(400, 'Выберите другое время.');
+    checkFree(bk.tutor, start, bk.id);
+    const now = new Date().toISOString();
+    (bk.moves = bk.moves || []).push({ from: bk.start, fromSlot: bk.slot, at: now });
+    bk.start = start; bk.slot = slotLabel(start); bk.updatedAt = now;
+    if (bk.status === 'confirmed') bk.status = 'new'; // репетитор подтверждает новое время заново
+    saveDb();
+    return send(res, 200, { booking: Object.assign({}, bk, { editable: canChange(bk), movesLeft: Math.max(0, MAX_RESCHEDULES - bk.moves.length) }) });
+  }
+
+  // ---- Кабинет репетитора (репетитор — свои данные, администратор — любого) ----
+  if (route === 'GET /api/staff/overview') {
+    const tutor = scopeTutor(url.searchParams.get('tutor') || Object.keys(TUTORS)[0]);
+    const tutors = {}; Object.keys(TUTORS).forEach(k => { if (me.role === 'admin' || k === tutor) tutors[k] = TUTORS[k].name; });
+    const bookings = db.bookings.filter(b => b.tutor === tutor).sort((a, b) => (a.start || '').localeCompare(b.start || '')).map(b => {
+      const u = db.users.find(x => x.id === b.userId);
+      return Object.assign({}, b, { studentKey: studentKey(b), account: { name: u ? u.name : '—', email: u ? u.email : '', phone: u ? u.phone : '' } });
+    });
+    const n = mskNow();
+    return send(res, 200, { tutor, tutorName: TUTORS[tutor].name, tutors, bookings,
+      blocks: db.blocks.filter(k => k.tutor === tutor).sort((a, b) => a.dateFrom.localeCompare(b.dateFrom)),
+      notes: db.notes.filter(x => x.tutor === tutor).sort((a, b) => b.id - a.id),
+      today: ymd(n), now: ymd(n) + ' ' + pad2(n.getUTCHours()) + ':' + pad2(n.getUTCMinutes()), config: { workStart: WORK_START, workEnd: WORK_END } });
+  }
+  if ((m = url.pathname.match(/^\/api\/staff\/bookings\/(\d+)\/status$/)) && req.method === 'POST') {
+    requireStaff();
+    const b = await readBody(req);
+    const bk = db.bookings.find(x => x.id === Number(m[1])) || fail(404, 'Запись не найдена');
+    scopeTutor(bk.tutor); if (me.role === 'tutor' && bk.tutor !== me.tutor) fail(404, 'Запись не найдена');
+    applyStatus(bk, b.status, me.role === 'admin' ? 'admin' : 'tutor');
+    saveDb();
+    return send(res, 200, { booking: bk });
+  }
+  // Закрытие времени: день, несколько дней (отпуск) или часть дня
+  if (route === 'POST /api/staff/blocks') {
+    const b = await readBody(req);
+    const tutor = scopeTutor(b.tutor);
+    const today = ymd(mskNow());
+    let dateFrom = str(b.dateFrom, 10), dateTo = str(b.dateTo, 10) || dateFrom;
+    if (!isDate(dateFrom) || !isDate(dateTo)) fail(400, 'Выберите дату.');
+    if (dateTo < dateFrom) fail(400, 'Дата окончания раньше даты начала.');
+    if (dateTo < today) fail(400, 'Нельзя закрыть время в прошлом.');
+    if (dateFrom < today) dateFrom = today;
+    if (Date.parse(dateTo) - Date.parse(dateFrom) > 366 * DAY_MS) fail(400, 'Слишком длинный период — не больше года.');
+    const allDay = b.allDay === true;
+    const fromHour = allDay ? WORK_START : Number(b.fromHour), toHour = allDay ? WORK_END : Number(b.toHour);
+    if (!Number.isInteger(fromHour) || !Number.isInteger(toHour) || fromHour < WORK_START || toHour > WORK_END || fromHour >= toHour)
+      fail(400, 'Выберите часы в пределах ' + WORK_START + ':00–' + WORK_END + ':00: «с» должно быть раньше «до».');
+    const hit = db.bookings.filter(x => x.tutor === tutor && activeBooking(x) && x.start && startToMs(x.start) > Date.now() &&
+      x.start.slice(0, 10) >= dateFrom && x.start.slice(0, 10) <= dateTo && Number(x.start.slice(11, 13)) >= fromHour && Number(x.start.slice(11, 13)) < toHour);
+    if (hit.length && b.cancelConflicts !== true)
+      return send(res, 409, { error: 'В закрываемое время уже есть записи: ' + hit.length + '. Их придётся отменить — ученики увидят, что запись отменена.', conflicts: hit.length });
+    const now = new Date().toISOString();
+    hit.forEach(x => { x.status = 'cancelled'; x.cancelledBy = me.role === 'admin' ? 'admin' : 'tutor'; x.updatedAt = now; });
+    const block = { id: nextId(db.blocks), tutor, dateFrom, dateTo, fromHour, toHour, reason: str(b.reason, 120), createdBy: me.id, createdAt: now };
+    db.blocks.push(block);
+    saveDb();
+    return send(res, 201, { block, cancelled: hit.length });
+  }
+  if ((m = url.pathname.match(/^\/api\/staff\/blocks\/(\d+)\/delete$/)) && req.method === 'POST') {
+    requireStaff();
+    const k = db.blocks.find(x => x.id === Number(m[1])) || fail(404, 'Не найдено');
+    scopeTutor(k.tutor); if (me.role === 'tutor' && k.tutor !== me.tutor) fail(404, 'Не найдено');
+    db.blocks = db.blocks.filter(x => x !== k);
+    saveDb();
+    return send(res, 200, { ok: true });
+  }
+  // Заметки об ученике (видны только репетитору и администратору)
+  if (route === 'POST /api/staff/notes') {
+    const b = await readBody(req);
+    const tutor = scopeTutor(b.tutor);
+    const mine = db.bookings.filter(x => x.tutor === tutor);
+    const key = str(b.studentKey, 200);
+    if (!mine.some(x => studentKey(x) === key)) fail(404, 'Ученик не найден');
+    const text = str(b.text, 2000);
+    if (!text) fail(400, 'Введите текст заметки.');
+    let bookingId = null;
+    if (b.bookingId != null) { const bk = mine.find(x => x.id === Number(b.bookingId) && studentKey(x) === key); if (!bk) fail(400, 'Занятие не найдено'); bookingId = bk.id; }
+    const now = new Date().toISOString();
+    const note = { id: nextId(db.notes), tutor, studentKey: key, bookingId, text, author: me.name, authorId: me.id, createdAt: now, updatedAt: now };
+    db.notes.push(note); saveDb();
+    return send(res, 201, { note });
+  }
+  if ((m = url.pathname.match(/^\/api\/staff\/notes\/(\d+)(\/delete)?$/)) && req.method === 'POST') {
+    requireStaff();
+    const note = db.notes.find(x => x.id === Number(m[1])) || fail(404, 'Заметка не найдена');
+    scopeTutor(note.tutor); if (me.role === 'tutor' && note.tutor !== me.tutor) fail(404, 'Заметка не найдена');
+    if (m[2]) { db.notes = db.notes.filter(x => x !== note); saveDb(); return send(res, 200, { ok: true }); }
+    const text = str((await readBody(req)).text, 2000);
+    if (!text) fail(400, 'Введите текст заметки.');
+    note.text = text; note.updatedAt = new Date().toISOString(); saveDb();
+    return send(res, 200, { note });
   }
 
   // ---- Администратор ----
@@ -306,14 +538,27 @@ async function handleApi(req, res, url) {
   if ((m = url.pathname.match(/^\/api\/admin\/bookings\/(\d+)\/status$/)) && req.method === 'POST') {
     requireAdmin();
     const b = await readBody(req);
-    if (!STATUSES.includes(b.status)) fail(400, 'Неизвестный статус');
     const bk = db.bookings.find(x => x.id === Number(m[1])) || fail(404, 'Запись не найдена');
-    if (b.status !== 'cancelled' && bk.status === 'cancelled' &&
-        db.bookings.some(x => x.id !== bk.id && sameSlot(x, bk) && activeBooking(x))) fail(409, 'Это время уже занято другой записью.');
-    bk.status = b.status; bk.updatedAt = new Date().toISOString();
-    if (b.status === 'cancelled') bk.cancelledBy = 'admin'; else delete bk.cancelledBy;
+    applyStatus(bk, b.status, 'admin');
     saveDb();
     return send(res, 200, { booking: bk });
+  }
+
+  if ((m = url.pathname.match(/^\/api\/admin\/users\/(\d+)\/role$/)) && req.method === 'POST') {
+    requireAdmin();
+    const b = await readBody(req);
+    const u = db.users.find(x => x.id === Number(m[1])) || fail(404, 'Пользователь не найден');
+    if (u.role === 'admin') fail(400, 'Роль администратора здесь не меняется.');
+    if (b.role === 'tutor') { if (!hasTutor(b.tutor)) fail(400, 'Выберите репетитора.'); u.role = 'tutor'; u.tutor = b.tutor; }
+    else if (b.role === 'user') { u.role = 'user'; delete u.tutor; }
+    else fail(400, 'Неизвестная роль');
+    saveDb();
+    return send(res, 200, { user: publicUser(u) });
+  }
+  if ((m = url.pathname.match(/^\/api\/admin\/users\/(\d+)\/reset-link$/)) && req.method === 'POST') {
+    requireAdmin();
+    const u = db.users.find(x => x.id === Number(m[1])) || fail(404, 'Пользователь не найден');
+    return send(res, 200, { link: resetLink(req, makeResetToken(u.id)), email: u.email, validMinutes: RESET_TTL / 60e3 });
   }
 
   fail(404, 'Не найдено');
