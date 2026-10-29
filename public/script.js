@@ -51,6 +51,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nav = $('header nav');
     if (user.role === 'admin' && nav) { const a = el('a', null, 'Админ-панель'); a.href = 'admin.html'; nav.append(a); }
   }
+  const headerEl = $('header'), headerInner = $('.header-inner');
+  if (headerEl && headerInner) {
+    const burger = el('button', 'burger'); burger.type = 'button';
+    burger.setAttribute('aria-label', 'Меню'); burger.setAttribute('aria-expanded', 'false');
+    burger.append(el('span'), el('span'), el('span'));
+    const setMenu = open => { headerEl.classList.toggle('open', open); burger.setAttribute('aria-expanded', String(open)); };
+    burger.addEventListener('click', () => setMenu(!headerEl.classList.contains('open')));
+    headerEl.addEventListener('click', e => { if (e.target.closest('nav a')) setMenu(false); });
+    window.addEventListener('resize', () => { if (window.innerWidth > 800) setMenu(false); });
+    headerInner.append(burger);
+  }
   const hero = $('#createAccount');
   if (hero && user) { hero.textContent = 'Мои записи'; hero.href = 'bookings.html'; }
 
@@ -99,7 +110,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tutorId = tutorMain.dataset.tutor;
     const modal = $('#bookingModal'), form = $('#bookingForm'), gate = $('#authGate'), done = $('#bookingDone'), err = $('#bookingError');
     const daysEl = $('#days'), PER_PAGE = 7;
-    let days = [], today = '', page = 0, selectedStart = null;
+    let days = [], today = '', page = 0, selectedStart = null, activeDate = null;
 
     const updateNearest = () => {
       const n = $('#nearest'); if (!n) return;
@@ -115,8 +126,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       const pages = Math.max(1, Math.ceil(days.length / PER_PAGE));
       page = Math.min(page, pages - 1);
       const chunk = days.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+      const freeIn = d => d.slots.filter(s => s.state === 'free').length;
+      if (!chunk.some(d => d.date === activeDate)) { const f = chunk.find(d => freeIn(d)) || chunk[0]; activeDate = f ? f.date : null; }
+      // на телефоне: полоска дней, ниже слоты выбранного дня (на компьютере полоска скрыта)
+      const tabs = el('div', 'day-tabs'); tabs.setAttribute('role', 'group'); tabs.setAttribute('aria-label', 'День');
       chunk.forEach(day => {
-        const col = el('div', 'day' + (day.date === today ? ' day-today' : ''));
+        const n = freeIn(day), t = el('button', 'day-tab' + (day.date === activeDate ? ' active' : '') + (n ? '' : ' none'));
+        t.type = 'button'; t.dataset.date = day.date;
+        t.append(el('b', null, day.weekday), el('span', null, day.label.split(' ')[0]), el('small', null, n ? n + ' св.' : 'нет'));
+        tabs.append(t);
+      });
+      daysEl.append(tabs);
+      chunk.forEach(day => {
+        const col = el('div', 'day' + (day.date === today ? ' day-today' : '') + (day.date === activeDate ? ' active' : ''));
+        col.dataset.date = day.date;
         const h = el('h4', null, day.weekday);
         h.append(el('small', null, day.label + (day.date === today ? ' · сегодня' : '')));
         const ul = el('ul', 'slots-list');
@@ -162,6 +185,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     daysEl.addEventListener('click', e => {
+      const tab = e.target.closest('.day-tab');
+      if (tab) {
+        activeDate = tab.dataset.date;
+        $$('.day-tab', daysEl).forEach(x => x.classList.toggle('active', x === tab));
+        $$('.day', daysEl).forEach(x => x.classList.toggle('active', x.dataset.date === activeDate));
+        return;
+      }
       const slot = e.target.closest('.slot');
       if (!slot || slot.disabled) return;
       $$('.slot.selected').forEach(s => s.classList.remove('selected'));
@@ -249,7 +279,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     adminApp.hidden = false;
     let bookings = [], users = [], today = '', nowStr = '';
     let cfg = { workStart: 14, workEnd: 21, tutors: TUTOR_NAMES };
-    let weekOffset = 0, calTutor = '', showCancelled = false, openId = null;
+    let weekOffset = 0, calTutor = '', showCancelled = false, openId = null, calScrolled = false;
     const fStatus = $('#fStatus'), fTutor = $('#fTutor'), fSearch = $('#fSearch');
     fStatus.append(new Option('Все статусы', ''));
     Object.entries(STATUS).forEach(([k, v]) => fStatus.append(new Option(v, k)));
@@ -416,6 +446,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const [b, u] = await Promise.all([api('/api/admin/bookings'), api('/api/admin/users')]);
         bookings = b.bookings; users = u.users; today = b.today; nowStr = b.now; cfg = b.config; render();
+        if (!calScrolled) { // на узком экране показываем сразу сегодняшний день
+          calScrolled = true;
+          const w = $('.cal-wrap'), h = $('.cal-head.is-today');
+          if (w && h) w.scrollLeft = Math.max(0, h.getBoundingClientRect().left - w.getBoundingClientRect().left + w.scrollLeft - 52);
+        }
       } catch (ex) { if (ex.status === 401 || ex.status === 403) location.reload(); }
     };
     [fStatus, fTutor].forEach(x => x.addEventListener('change', render));
