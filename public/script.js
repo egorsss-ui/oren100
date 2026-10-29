@@ -133,6 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const f = chunk[0], l = chunk[chunk.length - 1];
         $('#weekLabel').textContent = f.label + ' — ' + l.label + ' · время МСК';
       }
+      $('#weekPrev').hidden = $('#weekNext').hidden = pages <= 1; // при одной неделе кнопки не нужны
       $('#weekPrev').disabled = page === 0;
       $('#weekNext').disabled = page >= pages - 1;
       updateNearest();
